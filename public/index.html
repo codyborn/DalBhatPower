@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Dal Bhat Index — what a plate costs across Nepal</title>
+  <meta name="description" content="Crowdsourced dal bhat prices across Nepal, mapped against elevation and time." />
+  <meta name="theme-color" content="#b45309" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍛</text></svg>" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="brand"><span aria-hidden="true">🍛</span> Dal Bhat Index</h1>
+    <div id="auth-area" class="auth-area"></div>
+  </header>
+
+  <div id="filters" class="filters" aria-label="Filters">
+    <label>Plate
+      <select id="f-meal">
+        <option value="veg" selected>Veg</option>
+        <option value="chicken">Chicken</option>
+        <option value="mutton">Mutton</option>
+        <option value="fish">Fish</option>
+        <option value="any">Any</option>
+      </select>
+    </label>
+    <label>Where
+      <select id="f-venue">
+        <option value="all" selected>All places</option>
+        <option value="local">Local bhojanalaya</option>
+        <option value="teahouse">Trekking teahouse</option>
+        <option value="restaurant">Restaurant</option>
+      </select>
+    </label>
+    <label>Period
+      <select id="f-months">
+        <option value="3">3 months</option>
+        <option value="6" selected>6 months</option>
+        <option value="12">12 months</option>
+        <option value="24">24 months</option>
+      </select>
+    </label>
+  </div>
+
+  <main>
+    <section id="view-map" class="view active" aria-label="Map">
+      <div id="map"></div>
+      <div id="map-summary" class="map-summary"></div>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <section id="view-trends" class="view" aria-label="Trends">
+      <div class="card">
+        <h2>Price vs elevation</h2>
+        <p class="muted" id="elev-note">Each dot is a town: its median plate price against the median elevation of its reports.</p>
+        <div id="chart-elev"></div>
+      </div>
+      <div class="card">
+        <h2>National median over time</h2>
+        <p class="muted">Monthly median across all matching reports (24 months).</p>
+        <div id="chart-time"></div>
+      </div>
+      <div class="card">
+        <h2>Towns</h2>
+        <div id="town-table"></div>
+      </div>
+    </section>
+
+    <section id="view-feed" class="view" aria-label="Dal bhat feed">
+      <div id="feed" class="feed"></div>
+      <button id="feed-more" class="btn ghost wide" hidden>Load more</button>
+    </section>
+
+    <section id="view-add" class="view" aria-label="Add">
+      <div id="add-signin" class="card center" hidden>
+        <p>Sign in with Google to add a price or post your dal bhat.</p>
+        <button class="btn primary" data-action="signin">Sign in with Google</button>
+      </div>
+
+      <div id="add-forms">
+        <div class="segmented" role="tablist">
+          <button role="tab" class="seg active" data-form="report">💰 Menu price</button>
+          <button role="tab" class="seg" data-form="post">📸 Feed post</button>
+        </div>
+
+        <form id="form-report" class="card form">
+          <p class="muted">Snap the menu or price board. We read the time and location from the photo (if your phone saved them), then strip that data before uploading.</p>
+          <label class="file">
+            <input type="file" id="r-photo" accept="image/*" required />
+            <span>Choose menu photo</span>
+          </label>
+          <img id="r-preview" class="preview" alt="" hidden />
+          <div id="r-meta" class="meta-chips"></div>
+
+          <div class="row">
+            <label>Price (Rs)
+              <input type="number" id="r-price" inputmode="numeric" min="30" max="5000" step="1" required />
+            </label>
+            <label>Plate
+              <select id="r-meal">
+                <option value="veg">Veg</option>
+                <option value="chicken">Chicken</option>
+                <option value="mutton">Mutton</option>
+                <option value="fish">Fish</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label>Type of place
+              <select id="r-venue">
+                <option value="local">Local bhojanalaya</option>
+                <option value="teahouse">Trekking teahouse</option>
+                <option value="restaurant">Restaurant</option>
+              </select>
+            </label>
+            <label>Place name (optional)
+              <input type="text" id="r-venue-name" maxlength="80" />
+            </label>
+          </div>
+          <label class="check"><input type="checkbox" id="r-refills" checked /> Refills included</label>
+
+          <fieldset class="loc">
+            <legend>Location</legend>
+            <div class="loc-actions">
+              <button type="button" class="btn ghost small" id="r-use-device">📍 Use my current location</button>
+              <span class="muted small">or tap the map / drag the pin</span>
+            </div>
+            <div id="r-map" class="mini-map"></div>
+            <label>Town
+              <input type="text" id="r-town" list="town-list" maxlength="60" required autocomplete="off" />
+            </label>
+          </fieldset>
+
+          <button class="btn primary wide" type="submit" id="r-submit">Submit price</button>
+        </form>
+
+        <form id="form-post" class="card form" hidden>
+          <label class="file">
+            <input type="file" id="p-photo" accept="image/*" required />
+            <span>Choose a photo of your dal bhat</span>
+          </label>
+          <img id="p-preview" class="preview" alt="" hidden />
+          <label>Caption
+            <textarea id="p-caption" maxlength="280" rows="3" placeholder="Best gundruk achar on the trail…"></textarea>
+          </label>
+          <div class="row">
+            <label>Town
+              <input type="text" id="p-town" list="town-list" maxlength="60" required autocomplete="off" />
+            </label>
+            <label>Price (Rs, optional)
+              <input type="number" id="p-price" inputmode="numeric" min="30" max="5000" step="1" />
+            </label>
+          </div>
+          <button class="btn primary wide" type="submit" id="p-submit">Post</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="view-me" class="view" aria-label="Profile">
+      <div id="me"></div>
+    </section>
+  </main>
+
+  <nav class="tabs" aria-label="Sections">
+    <button class="tab active" data-view="map"><span>🗺️</span>Map</button>
+    <button class="tab" data-view="trends"><span>📈</span>Trends</button>
+    <button class="tab add" data-view="add"><span>＋</span>Add</button>
+    <button class="tab" data-view="feed"><span>🍛</span>Feed</button>
+    <button class="tab" data-view="me"><span>👤</span>Me</button>
+  </nav>
+
+  <datalist id="town-list"></datalist>
+
+  <dialog id="sheet" class="sheet">
+    <button class="close" data-action="close-sheet" aria-label="Close">✕</button>
+    <div id="sheet-body"></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

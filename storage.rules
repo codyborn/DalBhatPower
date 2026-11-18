@@ -1,0 +1,18 @@
+rules_version = '2';
+
+// Photos are re-encoded in the browser (EXIF stripped, max 1600px) before upload.
+// Path: uploads/{uid}/{kind}/{fileName}   kind = "menus" | "meals"
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{uid}/{kind}/{fileName} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && kind in ['menus', 'meals']
+        && request.resource.size < 3 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg';
+      // Owners can remove their own photos; moderators remove via Cloud Functions (admin SDK).
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
