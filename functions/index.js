@@ -281,7 +281,7 @@ exports.moderate = onCall(async (request) => {
   return { ok: true };
 });
 
-/** setBanned({uid, banned: boolean}) — banned users can't post, confirm, like or flag. */
+/** setBanned({uid, banned: boolean}) — banned users can't post, confirm, like or flag (moderators only). */
 exports.setBanned = onCall(async (request) => {
   requireMod(request);
   const { uid, banned } = request.data || {};
