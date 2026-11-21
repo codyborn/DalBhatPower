@@ -103,7 +103,13 @@ exports.onReportCreated = onDocumentCreated(on('reports/{reportId}'), async (eve
   if (!snap) return;
   const r = snap.data();
 
-  const recent = await countRecent('reports', r.uid);
+  let recent = 0;
+  try {
+    recent = await countRecent('reports', r.uid);
+  } catch (err) {
+    // e.g. index still building — don't let the rate limit block the elevation lookup
+    logger.error('Rate-limit count failed', { err: String(err) });
+  }
   if (recent > MAX_REPORTS_PER_HOUR) {
     await snap.ref.update({ status: 'hidden', hiddenReason: 'rate-limit', repAwarded: 0 });
     await db.collection('modlog').add({
@@ -114,6 +120,7 @@ exports.onReportCreated = onDocumentCreated(on('reports/{reportId}'), async (eve
   }
 
   const elevation = await lookupElevation(r.lat, r.lng);
+  logger.info('Report created', { id: snap.id, elevation });
   const batch = db.batch();
   batch.update(snap.ref, { elevation, repAwarded: POINTS.report });
   addReputation(r.uid, POINTS.report, batch);
@@ -221,6 +228,27 @@ exports.onFlagCreated = onDocumentCreated(on('flags/{flagId}'), async (event) =>
     }
     tx.update(targetRef, update);
   });
+});
+
+// ---------- elevation self-repair (callable) ----------
+/**
+ * fillElevation({reportId}) — any signed-in user's browser calls this when it shows a
+ * report that still has no elevation (e.g. the lookup failed at creation time).
+ */
+exports.fillElevation = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+  const id = request.data && request.data.reportId;
+  if (typeof id !== 'string' || !/^[A-Za-z0-9]{1,40}$/.test(id)) {
+    throw new HttpsError('invalid-argument', 'Bad report id.');
+  }
+  const ref = db.doc(`reports/${id}`);
+  const snap = await ref.get();
+  if (!snap.exists) throw new HttpsError('not-found', 'No such report.');
+  const r = snap.data();
+  if (typeof r.elevation === 'number') return { elevation: r.elevation };
+  const elevation = await lookupElevation(r.lat, r.lng);
+  if (elevation != null) await ref.update({ elevation });
+  return { elevation };
 });
 
 // ---------- moderator tools (callable) ----------

@@ -33,6 +33,7 @@ if (useEmulators) {
   connectFunctionsEmulator(functions, '127.0.0.1', 5001);
 }
 const moderateFn = httpsCallable(functions, 'moderate');
+const fillElevationFn = httpsCallable(functions, 'fillElevation');
 const setBannedFn = httpsCallable(functions, 'setBanned');
 
 // ---------------------------------------------------------------- state
@@ -411,7 +412,7 @@ async function openTown(key) {
   const recent = [...town.reports].sort((a, b) => b.observedAt - a.observedAt).slice(0, 30);
 
   openSheet(`
-    <h2>${esc(town.name)}</h2>
+    <h2 data-town="${esc(town.key)}">${esc(town.name)}</h2>
     <p class="muted small">${esc(f.meal === 'any' ? 'Any plate' : MEAL_LABEL[f.meal] + ' plate')} ·
       ${esc(f.venue === 'all' ? 'all places' : VENUE_LABEL[f.venue])} · last ${f.months} months</p>
     <div class="stats">
@@ -445,7 +446,45 @@ function reportRow(r) {
     </div>`;
 }
 
+// ---- elevation: set server-side a few seconds after a report is created ----
+const elevationRequested = new Set();
+
+function applyElevation(id, elevation, townKeyToRefresh) {
+  const r = state.reports.find((x) => x.id === id);
+  if (!r || typeof elevation !== 'number') return;
+  r.elevation = elevation;
+  renderMap();
+  if ($('#view-trends').classList.contains('active')) renderTrends();
+  if (sheet.open && townKeyToRefresh && $('#sheet-body h2')?.dataset.town === townKeyToRefresh) openTown(townKeyToRefresh);
+}
+
+/** Poll a just-created report until the server fills in its elevation, then ask it to retry. */
+async function waitForElevation(id, key) {
+  for (let i = 0; i < 6; i++) {
+    await new Promise((res) => setTimeout(res, 2500));
+    const snap = await getDoc(doc(db, 'reports', id)).catch(() => null);
+    const elev = snap?.data()?.elevation;
+    if (typeof elev === 'number') return applyElevation(id, elev, key);
+  }
+  ensureElevation({ id, townKey: key }, true);
+}
+
+/** Ask the server to look up elevation for a report that's missing it (once per session). */
+async function ensureElevation(r, force = false) {
+  if (!state.user || typeof r.elevation === 'number' || elevationRequested.has(r.id)) return;
+  const ageMs = r.createdAt?.toMillis ? Date.now() - r.createdAt.toMillis() : Infinity;
+  if (!force && ageMs < 30000) return; // creation trigger may still be running
+  elevationRequested.add(r.id);
+  try {
+    const { data } = await fillElevationFn({ reportId: r.id });
+    applyElevation(r.id, data?.elevation, r.townKey);
+  } catch (err) {
+    console.warn('fillElevation failed', err);
+  }
+}
+
 async function hydrateReportRows(reports) {
+  reports.forEach((r) => ensureElevation(r));
   await Promise.all(reports.map(async (r) => {
     const row = $(`.report[data-report="${CSS.escape(r.id)}"]`);
     if (!row) return;
@@ -859,7 +898,7 @@ $('#form-report').addEventListener('submit', async (e) => {
     path = await uploadPhoto(file, 'menus');
     const takenAt = draft.meta?.takenAt;
     const { town, townKey: key } = canonicalTown(townName);
-    await addDoc(collection(db, 'reports'), {
+    const newRef = await addDoc(collection(db, 'reports'), {
       uid: state.user.uid,
       town,
       townKey: key,
@@ -882,6 +921,7 @@ $('#form-report').addEventListener('submit', async (e) => {
     toast('Thanks! Price added. +5 reputation');
     resetReportForm();
     await loadReports();
+    waitForElevation(newRef.id, key);
     bumpOwnReputation();
     showView('map');
     openTown(key);
