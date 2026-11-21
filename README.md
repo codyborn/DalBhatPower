@@ -38,7 +38,7 @@ A crowdsourced map of what a plate of dal bhat costs across Nepal, like fuel-pri
 | Auth | Firebase Authentication (Google provider) |
 | Data | Cloud Firestore (`firestore.rules` enforces the schema) |
 | Photos | Cloud Storage for Firebase (`storage.rules`: own folder, JPEG, < 3 MB) |
-| Server logic | Cloud Functions v2 (Node 20): reputation, counters, flags, elevation, moderation |
+| Server logic | Cloud Functions v2 (Node 22): reputation, counters, flags, elevation, moderation |
 | Hosting | Firebase Hosting |
 
 ## Data model
