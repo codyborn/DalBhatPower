@@ -19,7 +19,7 @@ export const functionsRegion = 'asia-south1';
 
 // Free CARTO basemaps key (https://carto.com/basemaps/apikey/) for the clean light/dark map.
 // Leave empty to use standard OpenStreetMap tiles. Restrict the key to your site's domains.
-export const cartoKey = '';
+export const cartoKey = 'cb1_5dim_1_23adfffb3db051cff9c1cbe9';
 
 // Set to true to talk to the local Firebase emulators (firebase emulators:start).
 export const useEmulators = false;
