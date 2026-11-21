@@ -36,7 +36,8 @@ setGlobalOptions({
 
 // ---------- tuning ----------
 const POINTS = {
-  report: 5,          // posting a menu-price report
+  report: 5,          // posting a menu-price report (first plate on a photo)
+  extraPlate: 1,      // each additional plate priced from the same menu photo
   post: 2,            // posting to the feed
   confirmReceived: 2, // someone confirms your price
   likeReceived: 1,    // someone likes your meal photo
@@ -45,7 +46,7 @@ const POINTS = {
   flagRejected: -1,   // a moderator restored something you flagged
 };
 const HIDE_THRESHOLD = 3;          // weighted flag score that auto-hides an item
-const MAX_REPORTS_PER_HOUR = 15;   // above this, new reports are held for review
+const MAX_REPORTS_PER_HOUR = 40;   // plates per hour; above this, new reports are held for review
 const MAX_POSTS_PER_HOUR = 10;
 
 /** Flag weight grows with reputation, so trusted users can clear spam faster. */
@@ -88,6 +89,14 @@ async function countRecent(collection, uid) {
   return snap.data().count;
 }
 
+/** Several plate reports can share one menu photo: only delete it when none still use it. */
+async function deleteReportPhotoIfUnused(path, exceptId) {
+  if (!path) return;
+  const others = await db.collection('reports').where('photoPath', '==', path).limit(2).get();
+  const stillUsed = others.docs.some((d) => d.id !== exceptId && d.data().status !== 'removed');
+  if (!stillUsed) await deletePhoto(path);
+}
+
 async function deletePhoto(path) {
   if (!path) return;
   try {
@@ -121,9 +130,10 @@ exports.onReportCreated = onDocumentCreated(on('reports/{reportId}'), async (eve
 
   const elevation = await lookupElevation(r.lat, r.lng);
   logger.info('Report created', { id: snap.id, elevation });
+  const points = r.plateIndex > 0 ? POINTS.extraPlate : POINTS.report;
   const batch = db.batch();
-  batch.update(snap.ref, { elevation, repAwarded: POINTS.report });
-  addReputation(r.uid, POINTS.report, batch);
+  batch.update(snap.ref, { elevation, repAwarded: points });
+  addReputation(r.uid, points, batch);
   await batch.commit();
 });
 
@@ -131,7 +141,7 @@ exports.onReportDeleted = onDocumentDeleted(on('reports/{reportId}'), async (eve
   const r = event.data && event.data.data();
   if (!r) return;
   if (r.repAwarded) await addReputation(r.uid, -r.repAwarded);
-  await deletePhoto(r.photoPath);
+  await deleteReportPhotoIfUnused(r.photoPath, event.params.reportId);
   // Clean up the confirms sub-collection.
   await db.recursiveDelete(db.collection(`reports/${event.params.reportId}/confirms`));
 });
@@ -305,7 +315,10 @@ exports.moderate = onCall(async (request) => {
     at: FieldValue.serverTimestamp(),
   });
   await batch.commit();
-  if (action === 'remove') await deletePhoto(t.photoPath);
+  if (action === 'remove') {
+    if (targetType === 'reports') await deleteReportPhotoIfUnused(t.photoPath, targetId);
+    else await deletePhoto(t.photoPath);
+  }
   return { ok: true };
 });
 

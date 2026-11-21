@@ -5,7 +5,7 @@ import {
   signOut, connectAuthEmulator,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
-  getFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, addDoc,
+  getFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, addDoc, writeBatch,
   deleteDoc, query, where, orderBy, limit, startAfter, serverTimestamp, Timestamp,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import {
@@ -49,7 +49,9 @@ const state = {
   feedLoading: false,
 };
 const HISTORY_MONTHS = 24;
-const MEAL_LABEL = { veg: 'Veg', chicken: 'Chicken', mutton: 'Mutton', fish: 'Fish', other: 'Other' };
+const MEAL_LABEL = { veg: 'Veg', chicken: 'Chicken', egg: 'Egg', mutton: 'Mutton', fish: 'Fish', other: 'Other' };
+const DEFAULT_PLATES = ['veg', 'chicken', 'egg'];
+const MAX_PLATES = 8;
 const VENUE_LABEL = { local: 'Local bhojanalaya', teahouse: 'Teahouse', restaurant: 'Restaurant' };
 const FLAG_REASONS = {
   'wrong-price': 'Wrong or fake price',
@@ -453,6 +455,7 @@ function applyElevation(id, elevation, townKeyToRefresh) {
   const r = state.reports.find((x) => x.id === id);
   if (!r || typeof elevation !== 'number') return;
   r.elevation = elevation;
+  r.elevationPreview = false;
   renderMap();
   if ($('#view-trends').classList.contains('active')) renderTrends();
   if (sheet.open && townKeyToRefresh && $('#sheet-body h2')?.dataset.town === townKeyToRefresh) openTown(townKeyToRefresh);
@@ -471,7 +474,7 @@ async function waitForElevation(id, key) {
 
 /** Ask the server to look up elevation for a report that's missing it (once per session). */
 async function ensureElevation(r, force = false) {
-  if (!state.user || typeof r.elevation === 'number' || elevationRequested.has(r.id)) return;
+  if (!state.user || (typeof r.elevation === 'number' && !r.elevationPreview) || elevationRequested.has(r.id)) return;
   const ageMs = r.createdAt?.toMillis ? Date.now() - r.createdAt.toMillis() : Infinity;
   if (!force && ageMs < 30000) return; // creation trigger may still be running
   elevationRequested.add(r.id);
@@ -643,7 +646,7 @@ $$('.seg').forEach((b) => b.addEventListener('click', () => {
   if (b.dataset.form === 'report') setTimeout(initMiniMap, 50);
 }));
 
-const draft = { meta: null, lat: null, lng: null, geoSource: null, townAuto: true };
+const draft = { meta: null, lat: null, lng: null, geoSource: null, townAuto: true, elevation: null };
 let miniMap, miniMarker;
 
 function initMiniMap() {
@@ -655,9 +658,81 @@ function initMiniMap() {
   if (draft.lat != null) setLocation(draft.lat, draft.lng, draft.geoSource);
 }
 
+// ---- plates (one submission can price several dal bhat sets from the same menu) ----
+function plateRow(meal) {
+  const div = document.createElement('div');
+  div.className = 'plate-row';
+  div.innerHTML = `
+    <select class="plate-meal" aria-label="Plate">
+      ${Object.entries(MEAL_LABEL).map(([k, v]) => `<option value="${k}" ${k === meal ? 'selected' : ''}>${v}</option>`).join('')}
+    </select>
+    <input type="number" class="plate-price" inputmode="numeric" min="30" max="5000" step="1" placeholder="—" aria-label="Price in rupees" />
+    <button type="button" class="remove" aria-label="Remove plate">✕</button>`;
+  $('.remove', div).addEventListener('click', () => {
+    div.remove();
+    if (!$$('#r-plates .plate-row').length) $('#r-plates').appendChild(plateRow('veg'));
+    $('#r-add-plate').hidden = false;
+  });
+  return div;
+}
+function resetPlates() {
+  const box = $('#r-plates');
+  box.innerHTML = '';
+  DEFAULT_PLATES.forEach((m) => box.appendChild(plateRow(m)));
+  $('#r-add-plate').hidden = false;
+}
+$('#r-add-plate').addEventListener('click', () => {
+  const used = $$('#r-plates .plate-meal').map((s) => s.value);
+  const next = Object.keys(MEAL_LABEL).find((m) => !used.includes(m)) || 'other';
+  const row = plateRow(next);
+  $('#r-plates').appendChild(row);
+  $('.plate-price', row).focus();
+  $('#r-add-plate').hidden = $$('#r-plates .plate-row').length >= MAX_PLATES;
+});
+resetPlates();
+
+/** Read filled-in plates; returns {plates} or {error}. */
+function readPlates() {
+  const plates = [];
+  for (const row of $$('#r-plates .plate-row')) {
+    const raw = $('.plate-price', row).value.trim();
+    if (raw === '') continue;
+    const price = Number(raw);
+    const meal = $('.plate-meal', row).value;
+    if (!Number.isInteger(price) || price < 30 || price > 5000) {
+      return { error: `${MEAL_LABEL[meal]} price should be a whole number between 30 and 5000.` };
+    }
+    plates.push({ meal, price });
+  }
+  if (!plates.length) return { error: 'Enter the price of at least one plate.' };
+  return { plates };
+}
+
+// ---- elevation preview in the browser (the server stores the official value) ----
+let elevPreviewTimer;
+let elevPreviewAbort;
+function previewElevation(lat, lng) {
+  draft.elevation = null;
+  clearTimeout(elevPreviewTimer);
+  elevPreviewTimer = setTimeout(async () => {
+    if (elevPreviewAbort) elevPreviewAbort.abort();
+    elevPreviewAbort = new AbortController();
+    try {
+      const res = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${lat.toFixed(5)}&longitude=${lng.toFixed(5)}`, { signal: elevPreviewAbort.signal });
+      const m = (await res.json())?.elevation?.[0];
+      if (typeof m === 'number' && draft.lat === lat && draft.lng === lng) {
+        draft.elevation = Math.round(m);
+        $('#r-elev').textContent = ` · ⛰ ${fmtM(draft.elevation)}`;
+      }
+    } catch { /* preview only */ }
+  }, 300);
+}
+
 function setLocation(lat, lng, source) {
   if (!inNepal(lat, lng)) { toast('That location is outside Nepal.'); return; }
   draft.lat = lat; draft.lng = lng; draft.geoSource = source;
+  $('#r-elev').textContent = '';
+  previewElevation(lat, lng);
   if (miniMap) {
     if (!miniMarker) {
       miniMarker = L.marker([lat, lng], { draggable: true }).addTo(miniMap);
@@ -879,10 +954,10 @@ $('#form-report').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!state.user) return signIn();
   const file = $('#r-photo').files[0];
-  const price = Number($('#r-price').value);
   const townName = $('#r-town').value.trim();
   if (!file) return toast('Add a photo of the menu.');
-  if (!Number.isInteger(price) || price < 30 || price > 5000) return toast('Price should be a whole number between 30 and 5000.');
+  const { plates, error } = readPlates();
+  if (error) return toast(error);
   if (!townName) return toast('Which town or village is this?');
   if (draft.lat == null) {
     const known = knownPlaces().find((p) => townKey(p.name) === townKey(townName));
@@ -898,15 +973,13 @@ $('#form-report').addEventListener('submit', async (e) => {
     path = await uploadPhoto(file, 'menus');
     const takenAt = draft.meta?.takenAt;
     const { town, townKey: key } = canonicalTown(townName);
-    const newRef = await addDoc(collection(db, 'reports'), {
+    const shared = {
       uid: state.user.uid,
       town,
       townKey: key,
       lat: Number(draft.lat.toFixed(5)),
       lng: Number(draft.lng.toFixed(5)),
       geoSource: draft.geoSource,
-      priceNpr: price,
-      meal: $('#r-meal').value,
       venueType: $('#r-venue').value,
       venueName: $('#r-venue-name').value.trim().slice(0, 80),
       refills: $('#r-refills').checked,
@@ -917,13 +990,34 @@ $('#form-report').addEventListener('submit', async (e) => {
       flagScore: 0,
       confirmCount: 0,
       createdAt: serverTimestamp(),
+    };
+    // One document per plate so each plate type is indexed separately; all share the photo.
+    const batch = writeBatch(db);
+    const ids = plates.map((pl, i) => {
+      const ref = doc(collection(db, 'reports'));
+      batch.set(ref, { ...shared, meal: pl.meal, priceNpr: pl.price, plateIndex: i });
+      return ref.id;
     });
-    toast('Thanks! Price added. +5 reputation');
+    await batch.commit();
+    const previewElev = draft.elevation;
+    toast(`Thanks! ${plates.length} price${plates.length > 1 ? 's' : ''} added. +${5 + (plates.length - 1)} reputation`);
     resetReportForm();
     await loadReports();
-    waitForElevation(newRef.id, key);
+    // Show elevation straight away from the browser's lookup; the server's value replaces it.
+    for (const id of ids) {
+      const r = state.reports.find((x) => x.id === id);
+      if (r && typeof r.elevation !== 'number' && typeof previewElev === 'number') { r.elevation = previewElev; r.elevationPreview = true; }
+    }
+    renderMap();
+    ids.forEach((id) => waitForElevation(id, key));
     bumpOwnReputation();
     showView('map');
+    const firstMeal = plates[0].meal;
+    if (state.filters.meal !== 'any' && !plates.some((p) => p.meal === state.filters.meal)) {
+      state.filters.meal = firstMeal;
+      $('#f-meal').value = firstMeal;
+      renderMap();
+    }
     openTown(key);
   } catch (err) {
     console.error(err);
@@ -931,7 +1025,7 @@ $('#form-report').addEventListener('submit', async (e) => {
     toast(friendlyError(err));
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Submit price';
+    btn.textContent = 'Submit prices';
   }
 });
 
@@ -939,10 +1033,12 @@ function resetReportForm() {
   $('#form-report').reset();
   $('#r-refills').checked = true;
   $('#r-venue').value = 'teahouse';
+  resetPlates();
+  $('#r-elev').textContent = '';
   $('#r-loc-status').textContent = 'Pick a town above, or tap the map / drag the pin to fine-tune';
   $('#r-preview').hidden = true;
   $('#r-meta').innerHTML = '';
-  Object.assign(draft, { meta: null, lat: null, lng: null, geoSource: null, townAuto: true });
+  Object.assign(draft, { meta: null, lat: null, lng: null, geoSource: null, townAuto: true, elevation: null });
   if (miniMarker) { miniMarker.remove(); miniMarker = null; }
   if (miniMap) miniMap.fitBounds(NEPAL_BOUNDS);
 }
@@ -1032,7 +1128,7 @@ async function renderMe() {
       ${p.banned ? '<p class="chip warn" style="margin-top:10px">Your account is suspended from posting.</p>' : ''}
       <details style="margin-top:10px"><summary class="muted small">How reputation works</summary>
         <ul class="small muted">
-          <li>+5 for each price report, +2 for each feed post</li>
+          <li>+5 per menu photo (+1 for each extra plate on it), +2 per feed post</li>
           <li>+2 when someone confirms your price, +1 per like</li>
           <li>−15 if the community hides your item; deleting your own item removes its points</li>
           <li>Flags from members with 30+ reputation count double, 100+ count triple</li>

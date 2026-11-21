@@ -20,7 +20,7 @@ A crowdsourced map of what a plate of dal bhat costs across Nepal, like fuel-pri
 
   | Action | Points |
   |---|---|
-  | Price report | +5 |
+  | Menu photo with prices | +5, plus +1 per extra plate |
   | Feed post | +2 |
   | Someone confirms your price ("I paid this too") | +2 |
   | Like | +1 |

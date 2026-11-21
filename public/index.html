@@ -22,6 +22,7 @@
       <select id="f-meal">
         <option value="veg" selected>Veg</option>
         <option value="chicken">Chicken</option>
+        <option value="egg">Egg</option>
         <option value="mutton">Mutton</option>
         <option value="fish">Fish</option>
         <option value="any">Any</option>
@@ -95,19 +96,11 @@
           <img id="r-preview" class="preview" alt="" hidden />
           <div id="r-meta" class="meta-chips"></div>
 
-          <div class="row">
-            <label>Price (Rs)
-              <input type="number" id="r-price" inputmode="numeric" min="30" max="5000" step="1" required />
-            </label>
-            <label>Plate
-              <select id="r-meal">
-                <option value="veg">Veg</option>
-                <option value="chicken">Chicken</option>
-                <option value="mutton">Mutton</option>
-                <option value="fish">Fish</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
+          <div class="plates">
+            <div class="plates-head"><span>Plate</span><span>Price (Rs)</span></div>
+            <div id="r-plates"></div>
+            <button type="button" class="btn ghost small" id="r-add-plate">＋ Add another plate</button>
+            <p class="muted small">Fill in the plates on the menu — leave the rest blank.</p>
           </div>
           <div class="row">
             <label>Type of place
@@ -133,12 +126,12 @@
             </label>
             <div class="loc-actions">
               <button type="button" class="btn ghost small" id="r-use-device">📍 Use my current location</button>
-              <span class="muted small" id="r-loc-status">Pick a town above, or tap the map / drag the pin to fine-tune</span>
+              <span class="muted small"><span id="r-loc-status">Pick a town above, or tap the map / drag the pin to fine-tune</span><span id="r-elev"></span></span>
             </div>
             <div id="r-map" class="mini-map"></div>
           </fieldset>
 
-          <button class="btn primary wide" type="submit" id="r-submit">Submit price</button>
+          <button class="btn primary wide" type="submit" id="r-submit">Submit prices</button>
         </form>
 
         <form id="form-post" class="card form" hidden>

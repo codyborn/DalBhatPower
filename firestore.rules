@@ -59,7 +59,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
              'uid', 'town', 'townKey', 'lat', 'lng', 'geoSource',
              'priceNpr', 'meal', 'venueType', 'venueName', 'refills',
-             'photoPath', 'observedAt', 'timeSource',
+             'photoPath', 'observedAt', 'timeSource', 'plateIndex',
              'status', 'flagScore', 'confirmCount', 'createdAt'])
         && request.resource.data.uid == me()
         && validTown(request.resource.data)
@@ -67,7 +67,10 @@ service cloud.firestore {
         && request.resource.data.geoSource in ['exif', 'device', 'map']
         && request.resource.data.priceNpr is int
         && request.resource.data.priceNpr >= 30 && request.resource.data.priceNpr <= 5000
-        && request.resource.data.meal in ['veg', 'chicken', 'mutton', 'fish', 'other']
+        && request.resource.data.meal in ['veg', 'chicken', 'egg', 'mutton', 'fish', 'other']
+        && (!('plateIndex' in request.resource.data)
+            || (request.resource.data.plateIndex is int
+                && request.resource.data.plateIndex >= 0 && request.resource.data.plateIndex < 8))
         && request.resource.data.venueType in ['local', 'teahouse', 'restaurant']
         && shortString(request.resource.data.venueName, 0, 80)
         && request.resource.data.refills is bool

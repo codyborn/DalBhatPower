@@ -118,6 +118,11 @@ main { width: 100%; }
 .meta-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .chip { font-size: .78rem; padding: 3px 9px; border-radius: 999px; background: var(--brand-soft); color: var(--brand); }
 .chip.warn { background: #fef3c7; color: #92400e; }
+.plates { margin-top: 12px; }
+.plates-head, .plate-row { display: grid; grid-template-columns: 1fr 1fr 36px; gap: 8px; align-items: center; }
+.plates-head { font-size: .85rem; color: var(--muted); margin-bottom: 4px; }
+.plate-row { margin-bottom: 8px; }
+.plate-row .remove { border: none; background: none; color: var(--muted); font-size: 1.1rem; cursor: pointer; }
 .loc { border: 1px solid var(--line); border-radius: var(--radius); margin: 14px 0; padding: 10px; }
 .loc legend { font-size: .85rem; color: var(--muted); padding: 0 6px; }
 .loc-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
