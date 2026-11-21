@@ -61,10 +61,10 @@ select, input, textarea {
 textarea { resize: vertical; }
 
 /* ---------- views ---------- */
-main { max-width: 900px; margin: 0 auto; }
-.view { display: none; padding: 12px; }
+main { width: 100%; }
+.view { display: none; padding: 12px; max-width: 900px; margin: 0 auto; }
 .view.active { display: block; }
-#view-map { padding: 0; position: relative; }
+#view-map { padding: 0; position: relative; max-width: none; }
 #map { height: calc(100dvh - var(--topbar) - var(--filters) - var(--tabbar) - env(safe-area-inset-bottom)); min-height: 320px; }
 .map-summary {
   position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 500;
@@ -197,3 +197,4 @@ tr.clickable { cursor: pointer; }
 /* Leaflet popups follow theme */
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--ink); }
 .leaflet-popup-content { margin: 10px 12px; }
+.leaflet-container { background: var(--bg); font: inherit; }

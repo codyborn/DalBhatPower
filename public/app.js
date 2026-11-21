@@ -265,11 +265,27 @@ function refreshTownList() {
 }
 
 // ---------------------------------------------------------------- map
-const map = L.map('map', { zoomControl: true, attributionControl: true }).fitBounds(NEPAL_BOUNDS);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 18,
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-}).addTo(map);
+// Clean, low-detail basemap (CARTO Positron / Dark Matter) that follows the light/dark theme.
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+function baseLayer() {
+  const style = darkQuery.matches ? 'dark_all' : 'light_all';
+  return L.tileLayer(`https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png`, {
+    subdomains: 'abcd',
+    maxZoom: 16,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  });
+}
+// Keep the view on Nepal: a little padding around the border, no zooming out to the world.
+const NEPAL_VIEW_LIMIT = L.latLngBounds(NEPAL_BOUNDS).pad(0.35);
+const map = L.map('map', {
+  zoomControl: true, attributionControl: true, zoomSnap: 0.25,
+  minZoom: 6, maxBounds: NEPAL_VIEW_LIMIT, maxBoundsViscosity: 0.8,
+}).fitBounds(NEPAL_BOUNDS, { padding: [10, 10] });
+let mainTiles = baseLayer().addTo(map);
+darkQuery.addEventListener('change', () => {
+  map.removeLayer(mainTiles);
+  mainTiles = baseLayer().addTo(map);
+});
 const markerLayer = L.layerGroup().addTo(map);
 
 const RAMP = [[253, 230, 138], [245, 158, 11], [194, 65, 12], [127, 29, 29]];
@@ -589,10 +605,8 @@ let miniMap, miniMarker;
 function initMiniMap() {
   if ($('#form-report').hidden || !$('#view-add').classList.contains('active') || !state.user) return;
   if (miniMap) { miniMap.invalidateSize(); return; }
-  miniMap = L.map('r-map').fitBounds(NEPAL_BOUNDS);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18, attribution: '&copy; OpenStreetMap',
-  }).addTo(miniMap);
+  miniMap = L.map('r-map', { minZoom: 6, maxBounds: NEPAL_VIEW_LIMIT }).fitBounds(NEPAL_BOUNDS);
+  baseLayer().addTo(miniMap);
   miniMap.on('click', (e) => setLocation(e.latlng.lat, e.latlng.lng, 'map'));
   if (draft.lat != null) setLocation(draft.lat, draft.lng, draft.geoSource);
 }
