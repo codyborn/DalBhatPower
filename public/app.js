@@ -15,7 +15,7 @@ import {
   getFunctions, connectFunctionsEmulator, httpsCallable,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-functions.js';
 
-import { firebaseConfig, firestoreDatabase, functionsRegion, useEmulators } from './config.js';
+import { firebaseConfig, firestoreDatabase, functionsRegion, useEmulators, cartoKey } from './config.js';
 import { TOWNS, townKey, nearestTown, inNepal, NEPAL_BOUNDS } from './towns.js';
 import { readPhotoMeta, reencodeJpeg } from './photo.js';
 import { scatterChart, lineChart, linearFit } from './charts.js';
@@ -266,13 +266,18 @@ function refreshTownList() {
 
 // ---------------------------------------------------------------- map
 // Clean, low-detail basemap (CARTO Positron / Dark Matter) that follows the light/dark theme.
+// CARTO needs a free key (carto.com/basemaps/apikey); without one we fall back to standard OSM
+// tiles rather than showing CARTO's "API key required" watermark.
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 function baseLayer() {
+  if (!cartoKey) {
+    return L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 16, attribution: OSM_ATTR });
+  }
   const style = darkQuery.matches ? 'dark_all' : 'light_all';
-  return L.tileLayer(`https://{s}.basemaps.cartocdn.com/${style}/{z}/{x}/{y}{r}.png`, {
-    subdomains: 'abcd',
+  return L.tileLayer(`https://basemaps.cartocdn.com/rastertiles/${style}/{z}/{x}/{y}.png?key=${encodeURIComponent(cartoKey)}`, {
     maxZoom: 16,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    attribution: `${OSM_ATTR} &copy; <a href="https://carto.com/attributions">CARTO</a>`,
   });
 }
 // Keep the view on Nepal: a little padding around the border, no zooming out to the world.
