@@ -671,7 +671,10 @@ async function uploadPhoto(file, kind) {
   if (blob.size > 3 * 1024 * 1024) throw new Error('Photo is too large even after resizing.');
   const name = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.jpg`;
   const path = `uploads/${state.user.uid}/${kind}/${name}`;
-  await uploadBytes(storageRef(storage, path), blob, { contentType: 'image/jpeg' });
+  await uploadBytes(storageRef(storage, path), blob, {
+    contentType: 'image/jpeg',
+    cacheControl: 'public, max-age=31536000, immutable', // photos never change; cache once per viewer
+  });
   return path;
 }
 

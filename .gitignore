@@ -1,7 +1,4 @@
 node_modules/
-functions/.env
-public/config.js
-.firebaserc
 .firebase/
 *.log
 firebase-debug*.log
