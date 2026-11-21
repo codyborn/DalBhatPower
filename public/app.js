@@ -690,12 +690,22 @@ async function geocode(q) {
     .filter((p) => p.name && inNepal(p.lat, p.lng));
 }
 
+/** Move the pin to a place without closing the suggestion list. */
+function applyPlace(p, status) {
+  draft.townAuto = false;
+  setLocation(p.lat, p.lng, 'map');
+  $('#r-loc-status').textContent = status || `Pin set to ${p.name} — drag it to the exact spot if you like`;
+}
+
 townInput.addEventListener('input', () => {
   draft.townAuto = false;
   const q = townInput.value.trim();
   clearTimeout(geocodeTimer);
   if (q.length < 2) { renderSuggest([]); return; }
   const local = localMatches(q);
+  // Typing a known town's full name moves the pin straight away.
+  const exact = local.find((p) => townKey(p.name) === townKey(q));
+  if (exact) applyPlace(exact);
   renderSuggest(local, q.length >= 3 ? 'Searching map…' : null);
   if (q.length < 3) return;
   geocodeTimer = setTimeout(async () => {
@@ -715,11 +725,26 @@ function pickSuggestion(i) {
   const p = suggestItems[i];
   if (!p) return;
   townInput.value = p.name;
-  draft.townAuto = false;
   renderSuggest([]);
-  setLocation(p.lat, p.lng, 'map');
-  $('#r-loc-status').textContent = `Pin set to ${p.name} — drag it to the exact spot if you like`;
+  applyPlace(p);
 }
+
+/** When the user leaves the field without picking, use the best match for what they typed. */
+async function resolveTypedTown() {
+  const q = townInput.value.trim();
+  if (q.length < 2) return;
+  const key = townKey(q);
+  const local = knownPlaces().find((p) => townKey(p.name) === key);
+  if (local) return applyPlace(local);
+  if (draft.lat != null && draft.geoSource !== 'map') return; // photo/device location already set
+  try {
+    const [best] = await geocode(q);
+    if (best && townInput.value.trim() === q) {
+      applyPlace(best, `Pin set to ${best.name}${best.detail ? ' (' + best.detail + ')' : ''} — drag it if that's not right`);
+    }
+  } catch { /* ignore; user can tap the map */ }
+}
+townInput.addEventListener('change', resolveTypedTown);
 
 suggestBox.addEventListener('mousedown', (e) => {
   const li = e.target.closest('li[data-i]');
@@ -729,6 +754,11 @@ suggestBox.addEventListener('mousedown', (e) => {
 });
 
 townInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (suggestBox.hidden || !suggestItems.length)) {
+    e.preventDefault(); // don't submit the form; just place the pin
+    resolveTypedTown();
+    return;
+  }
   if (suggestBox.hidden || !suggestItems.length) return;
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
