@@ -15,7 +15,7 @@ import {
   getFunctions, connectFunctionsEmulator, httpsCallable,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-functions.js';
 
-import { firebaseConfig, functionsRegion, useEmulators } from './config.js';
+import { firebaseConfig, firestoreDatabase, functionsRegion, useEmulators } from './config.js';
 import { TOWNS, townKey, nearestTown, inNepal, NEPAL_BOUNDS } from './towns.js';
 import { readPhotoMeta, reencodeJpeg } from './photo.js';
 import { scatterChart, lineChart, linearFit } from './charts.js';
@@ -23,7 +23,7 @@ import { scatterChart, lineChart, linearFit } from './charts.js';
 // ---------------------------------------------------------------- Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+const db = getFirestore(app, firestoreDatabase || '(default)');
 const storage = getStorage(app);
 const functions = getFunctions(app, functionsRegion);
 if (useEmulators) {

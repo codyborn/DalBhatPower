@@ -65,8 +65,8 @@ Fields marked `*` are written only by Cloud Functions.
 1. **Create a Firebase project** at <https://console.firebase.google.com>. Then:
    - Upgrade to the **Blaze** plan. Cloud Functions need it, and the elevation lookup makes outbound calls. Expected cost at hobby scale is roughly zero.
    - **Authentication → Sign-in method → enable Google.** Add your hosting domain under *Authorized domains*.
-   - **Firestore → Create database.** Pick a location near Nepal, e.g. `asia-south1` (Mumbai).
-   - **Storage → Get started.**
+   - **Firestore → Create database.** Pick a location near Nepal, e.g. `asia-south1` (Mumbai). This repo is set up for a database named `dalbhatdb`. If yours has a different name, change it in `firebase.json`, `public/config.js` and `functions/.env`.
+   - **Storage → Get started.** Use the same location as Firestore and choose production mode. `firebase deploy` replaces the starter rules with `storage.rules`.
 2. **Install the CLI and select the project:**
    ```bash
    npm i -g firebase-tools

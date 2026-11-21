@@ -18,9 +18,16 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
 
+const { getFirestore, FieldValue, Timestamp } = require('firebase-admin/firestore');
+
+// Named Firestore database (set FIRESTORE_DATABASE in functions/.env; "(default)" if unnamed).
+const DATABASE_ID = process.env.FIRESTORE_DATABASE || '(default)';
+
 admin.initializeApp();
-const db = admin.firestore();
-const { FieldValue, Timestamp } = admin.firestore;
+const db = getFirestore(DATABASE_ID);
+
+/** Trigger options bound to our database. */
+const on = (document) => ({ document, database: DATABASE_ID });
 
 setGlobalOptions({
   region: process.env.FUNCTIONS_REGION || 'asia-south1',
@@ -91,7 +98,7 @@ async function deletePhoto(path) {
 }
 
 // ---------- price reports ----------
-exports.onReportCreated = onDocumentCreated('reports/{reportId}', async (event) => {
+exports.onReportCreated = onDocumentCreated(on('reports/{reportId}'), async (event) => {
   const snap = event.data;
   if (!snap) return;
   const r = snap.data();
@@ -113,7 +120,7 @@ exports.onReportCreated = onDocumentCreated('reports/{reportId}', async (event) 
   await batch.commit();
 });
 
-exports.onReportDeleted = onDocumentDeleted('reports/{reportId}', async (event) => {
+exports.onReportDeleted = onDocumentDeleted(on('reports/{reportId}'), async (event) => {
   const r = event.data && event.data.data();
   if (!r) return;
   if (r.repAwarded) await addReputation(r.uid, -r.repAwarded);
@@ -122,7 +129,7 @@ exports.onReportDeleted = onDocumentDeleted('reports/{reportId}', async (event) 
   await db.recursiveDelete(db.collection(`reports/${event.params.reportId}/confirms`));
 });
 
-exports.onConfirmCreated = onDocumentCreated('reports/{reportId}/confirms/{uid}', async (event) => {
+exports.onConfirmCreated = onDocumentCreated(on('reports/{reportId}/confirms/{uid}'), async (event) => {
   const reportRef = db.doc(`reports/${event.params.reportId}`);
   await db.runTransaction(async (tx) => {
     const rep = await tx.get(reportRef);
@@ -132,7 +139,7 @@ exports.onConfirmCreated = onDocumentCreated('reports/{reportId}/confirms/{uid}'
   });
 });
 
-exports.onConfirmDeleted = onDocumentDeleted('reports/{reportId}/confirms/{uid}', async (event) => {
+exports.onConfirmDeleted = onDocumentDeleted(on('reports/{reportId}/confirms/{uid}'), async (event) => {
   const reportRef = db.doc(`reports/${event.params.reportId}`);
   await db.runTransaction(async (tx) => {
     const rep = await tx.get(reportRef);
@@ -143,7 +150,7 @@ exports.onConfirmDeleted = onDocumentDeleted('reports/{reportId}/confirms/{uid}'
 });
 
 // ---------- feed posts ----------
-exports.onPostCreated = onDocumentCreated('posts/{postId}', async (event) => {
+exports.onPostCreated = onDocumentCreated(on('posts/{postId}'), async (event) => {
   const snap = event.data;
   if (!snap) return;
   const p = snap.data();
@@ -158,7 +165,7 @@ exports.onPostCreated = onDocumentCreated('posts/{postId}', async (event) => {
   await batch.commit();
 });
 
-exports.onPostDeleted = onDocumentDeleted('posts/{postId}', async (event) => {
+exports.onPostDeleted = onDocumentDeleted(on('posts/{postId}'), async (event) => {
   const p = event.data && event.data.data();
   if (!p) return;
   if (p.repAwarded) await addReputation(p.uid, -p.repAwarded);
@@ -166,7 +173,7 @@ exports.onPostDeleted = onDocumentDeleted('posts/{postId}', async (event) => {
   await db.recursiveDelete(db.collection(`posts/${event.params.postId}/likes`));
 });
 
-exports.onLikeCreated = onDocumentCreated('posts/{postId}/likes/{uid}', async (event) => {
+exports.onLikeCreated = onDocumentCreated(on('posts/{postId}/likes/{uid}'), async (event) => {
   const postRef = db.doc(`posts/${event.params.postId}`);
   await db.runTransaction(async (tx) => {
     const post = await tx.get(postRef);
@@ -176,7 +183,7 @@ exports.onLikeCreated = onDocumentCreated('posts/{postId}/likes/{uid}', async (e
   });
 });
 
-exports.onLikeDeleted = onDocumentDeleted('posts/{postId}/likes/{uid}', async (event) => {
+exports.onLikeDeleted = onDocumentDeleted(on('posts/{postId}/likes/{uid}'), async (event) => {
   const postRef = db.doc(`posts/${event.params.postId}`);
   await db.runTransaction(async (tx) => {
     const post = await tx.get(postRef);
@@ -187,7 +194,7 @@ exports.onLikeDeleted = onDocumentDeleted('posts/{postId}/likes/{uid}', async (e
 });
 
 // ---------- flags ----------
-exports.onFlagCreated = onDocumentCreated('flags/{flagId}', async (event) => {
+exports.onFlagCreated = onDocumentCreated(on('flags/{flagId}'), async (event) => {
   const f = event.data && event.data.data();
   if (!f) return;
   const targetRef = db.doc(`${f.targetType}/${f.targetId}`);

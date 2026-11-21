@@ -10,6 +10,9 @@ export const firebaseConfig = {
   appId: '1:000000000000:web:0000000000000000',
 };
 
+// Firestore database ID — matches FIRESTORE_DATABASE in functions/.env and "database" in firebase.json.
+export const firestoreDatabase = 'dalbhatdb';
+
 // Must match FUNCTIONS_REGION in functions/.env (and ideally your Firestore location).
 export const functionsRegion = 'asia-south1';
 
