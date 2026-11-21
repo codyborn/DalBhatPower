@@ -121,6 +121,17 @@ main { max-width: 900px; margin: 0 auto; }
 .loc { border: 1px solid var(--line); border-radius: var(--radius); margin: 14px 0; padding: 10px; }
 .loc legend { font-size: .85rem; color: var(--muted); padding: 0 6px; }
 .loc-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.town-search { position: relative; margin-top: 0 !important; }
+.suggest {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 1200; margin: 4px 0 0; padding: 4px 0;
+  list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.15); max-height: 260px; overflow-y: auto;
+}
+.suggest li { padding: 8px 12px; cursor: pointer; color: var(--ink); font-size: .92rem; }
+.suggest li small { display: block; color: var(--muted); font-size: .75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.suggest li.active, .suggest li:hover { background: var(--brand-soft); }
+.suggest li.note { cursor: default; color: var(--muted); font-size: .8rem; }
+.suggest li.note:hover { background: none; }
 .mini-map { height: 220px; border-radius: 10px; margin-top: 8px; }
 .segmented { display: flex; background: var(--line); border-radius: 999px; padding: 3px; margin-bottom: 12px; }
 .seg { flex: 1; border: none; background: none; font: inherit; padding: 8px; border-radius: 999px; cursor: pointer; color: var(--muted); }

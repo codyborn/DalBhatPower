@@ -618,7 +618,116 @@ function setLocation(lat, lng, source) {
     draft.townAuto = true;
   }
 }
-$('#r-town').addEventListener('input', () => { draft.townAuto = false; });
+// ---- town / village search (known towns first, then OpenStreetMap Nominatim) ----
+const townInput = $('#r-town');
+const suggestBox = $('#r-town-suggest');
+let suggestItems = [];
+let suggestIndex = -1;
+let geocodeTimer;
+let geocodeAbort;
+
+function knownPlaces() {
+  const places = new Map(TOWNS.map((t) => [t.key, { name: t.name, lat: t.lat, lng: t.lng, detail: 'Known town' }]));
+  for (const t of aggregateTowns(state.reports)) {
+    if (!places.has(t.key) && t.lat != null) {
+      places.set(t.key, { name: t.name, lat: t.lat, lng: t.lng, detail: `${t.n} report${t.n === 1 ? '' : 's'}` });
+    }
+  }
+  return [...places.values()];
+}
+
+function localMatches(q) {
+  const needle = q.toLowerCase();
+  return knownPlaces()
+    .map((p) => ({ p, i: p.name.toLowerCase().indexOf(needle) }))
+    .filter((x) => x.i >= 0)
+    .sort((a, b) => a.i - b.i || a.p.name.localeCompare(b.p.name))
+    .slice(0, 5)
+    .map((x) => x.p);
+}
+
+function renderSuggest(items, note) {
+  suggestItems = items;
+  suggestIndex = items.length ? 0 : -1;
+  suggestBox.innerHTML = items.map((p, i) => `
+    <li role="option" data-i="${i}" class="${i === 0 ? 'active' : ''}">${esc(p.name)}<small>${esc(p.detail || '')}</small></li>`).join('')
+    + (note ? `<li class="note">${esc(note)}</li>` : '');
+  const show = items.length > 0 || !!note;
+  suggestBox.hidden = !show;
+  townInput.setAttribute('aria-expanded', String(show));
+}
+
+async function geocode(q) {
+  if (geocodeAbort) geocodeAbort.abort();
+  geocodeAbort = new AbortController();
+  const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
+    q, format: 'jsonv2', countrycodes: 'np', limit: '6', 'accept-language': 'en',
+  });
+  const res = await fetch(url, { signal: geocodeAbort.signal, headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(`Search failed (${res.status})`);
+  const rows = await res.json();
+  return rows
+    .map((r) => ({
+      name: (r.name || r.display_name.split(',')[0]).slice(0, 60),
+      lat: Number(r.lat),
+      lng: Number(r.lon),
+      detail: r.display_name.split(',').slice(1, 4).join(',').trim(),
+    }))
+    .filter((p) => p.name && inNepal(p.lat, p.lng));
+}
+
+townInput.addEventListener('input', () => {
+  draft.townAuto = false;
+  const q = townInput.value.trim();
+  clearTimeout(geocodeTimer);
+  if (q.length < 2) { renderSuggest([]); return; }
+  const local = localMatches(q);
+  renderSuggest(local, q.length >= 3 ? 'Searching map…' : null);
+  if (q.length < 3) return;
+  geocodeTimer = setTimeout(async () => {
+    try {
+      const remote = await geocode(q);
+      if (townInput.value.trim() !== q) return; // user kept typing
+      const seen = new Set(local.map((p) => townKey(p.name)));
+      const merged = [...local, ...remote.filter((p) => !seen.has(townKey(p.name)) && seen.add(townKey(p.name)))];
+      renderSuggest(merged.slice(0, 8), merged.length ? null : 'No places found — tap the map to set the spot');
+    } catch (err) {
+      if (err.name !== 'AbortError') renderSuggest(local, local.length ? null : "Couldn't search right now — tap the map instead");
+    }
+  }, 450); // Nominatim asks for ≤1 request/second
+});
+
+function pickSuggestion(i) {
+  const p = suggestItems[i];
+  if (!p) return;
+  townInput.value = p.name;
+  draft.townAuto = false;
+  renderSuggest([]);
+  setLocation(p.lat, p.lng, 'map');
+  $('#r-loc-status').textContent = `Pin set to ${p.name} — drag it to the exact spot if you like`;
+}
+
+suggestBox.addEventListener('mousedown', (e) => {
+  const li = e.target.closest('li[data-i]');
+  if (!li) return;
+  e.preventDefault(); // keep focus so blur doesn't close the list first
+  pickSuggestion(Number(li.dataset.i));
+});
+
+townInput.addEventListener('keydown', (e) => {
+  if (suggestBox.hidden || !suggestItems.length) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    suggestIndex = (suggestIndex + (e.key === 'ArrowDown' ? 1 : -1) + suggestItems.length) % suggestItems.length;
+    $$('li[data-i]', suggestBox).forEach((li, i) => li.classList.toggle('active', i === suggestIndex));
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    pickSuggestion(Math.max(0, suggestIndex));
+  } else if (e.key === 'Escape') {
+    renderSuggest([]);
+  }
+});
+townInput.addEventListener('blur', () => setTimeout(() => renderSuggest([]), 150));
 
 $('#r-use-device').addEventListener('click', () => {
   if (!navigator.geolocation) return toast('Location not available on this device.');
@@ -686,8 +795,12 @@ $('#form-report').addEventListener('submit', async (e) => {
   const townName = $('#r-town').value.trim();
   if (!file) return toast('Add a photo of the menu.');
   if (!Number.isInteger(price) || price < 30 || price > 5000) return toast('Price should be a whole number between 30 and 5000.');
-  if (draft.lat == null) return toast('Set the location — use your location or tap the map.');
-  if (!townName) return toast('Which town is this?');
+  if (!townName) return toast('Which town or village is this?');
+  if (draft.lat == null) {
+    const known = knownPlaces().find((p) => townKey(p.name) === townKey(townName));
+    if (known) setLocation(known.lat, known.lng, 'map');
+  }
+  if (draft.lat == null) return toast('Pick the town from the search list, use your location, or tap the map.');
 
   const btn = $('#r-submit');
   btn.disabled = true;
@@ -735,6 +848,9 @@ $('#form-report').addEventListener('submit', async (e) => {
 
 function resetReportForm() {
   $('#form-report').reset();
+  $('#r-refills').checked = true;
+  $('#r-venue').value = 'teahouse';
+  $('#r-loc-status').textContent = 'Pick a town above, or tap the map / drag the pin to fine-tune';
   $('#r-preview').hidden = true;
   $('#r-meta').innerHTML = '';
   Object.assign(draft, { meta: null, lat: null, lng: null, geoSource: null, townAuto: true });
@@ -958,6 +1074,7 @@ document.addEventListener('click', async (e) => {
 });
 
 // ---------------------------------------------------------------- boot
+$('#r-refills').checked = true;
 refreshTownList();
 renderMap();
 loadReports();

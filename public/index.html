@@ -86,7 +86,7 @@
           <button role="tab" class="seg" data-form="post">📸 Feed post</button>
         </div>
 
-        <form id="form-report" class="card form">
+        <form id="form-report" class="card form" autocomplete="off">
           <p class="muted">Snap the menu or price board. We read the time and location from the photo (if your phone saved them), then strip that data before uploading.</p>
           <label class="file">
             <input type="file" id="r-photo" accept="image/*" required />
@@ -125,14 +125,17 @@
 
           <fieldset class="loc">
             <legend>Location</legend>
+            <label class="town-search">Town or village
+              <input type="text" id="r-town" maxlength="60" required autocomplete="off"
+                     placeholder="Search e.g. Namche, Ghandruk, Pokhara" role="combobox"
+                     aria-autocomplete="list" aria-controls="r-town-suggest" aria-expanded="false" />
+              <ul id="r-town-suggest" class="suggest" role="listbox" hidden></ul>
+            </label>
             <div class="loc-actions">
               <button type="button" class="btn ghost small" id="r-use-device">📍 Use my current location</button>
-              <span class="muted small">or tap the map / drag the pin</span>
+              <span class="muted small" id="r-loc-status">Pick a town above, or tap the map / drag the pin to fine-tune</span>
             </div>
             <div id="r-map" class="mini-map"></div>
-            <label>Town
-              <input type="text" id="r-town" list="town-list" maxlength="60" required autocomplete="off" />
-            </label>
           </fieldset>
 
           <button class="btn primary wide" type="submit" id="r-submit">Submit price</button>
