@@ -97,12 +97,7 @@ export function toDisplayable(file) {
 /** Resize to max `maxSide` px and re-encode as JPEG, dropping all metadata. */
 export async function reencodeJpeg(file, maxSide = 1600, quality = 0.82) {
   const source = await toDisplayable(file);
-  let bitmap;
-  try {
-    bitmap = await createImageBitmap(source, { imageOrientation: 'from-image' });
-  } catch {
-    bitmap = await loadViaImg(source);
-  }
+  const bitmap = await decodeSmall(source, maxSide, file);
   const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
   const w = Math.round(bitmap.width * scale);
   const h = Math.round(bitmap.height * scale);
@@ -116,12 +111,37 @@ export async function reencodeJpeg(file, maxSide = 1600, quality = 0.82) {
   return blob;
 }
 
+/**
+ * Decode without holding a full-resolution copy in memory where possible: 50–200 MP phone
+ * photos can exhaust memory (especially on phones) if decoded at full size.
+ */
+async function decodeSmall(blob, maxSide, original) {
+  const attempts = [
+    // Downscale while decoding (Chrome/Edge/Firefox). Width only keeps the aspect ratio;
+    // a generous size leaves room for the final max-side resize below.
+    () => createImageBitmap(blob, { imageOrientation: 'from-image', resizeWidth: maxSide * 2, resizeQuality: 'high' }),
+    () => createImageBitmap(blob, { imageOrientation: 'from-image' }),
+    () => loadViaImg(blob),
+  ];
+  let lastErr;
+  for (const attempt of attempts) {
+    try {
+      return await attempt();
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  console.error('Image decode failed', { type: original.type, size: original.size, name: original.name, lastErr });
+  const mb = (original.size / 1024 / 1024).toFixed(1);
+  throw new Error(`Couldn't read this photo (${original.type || 'unknown type'}, ${mb} MB). Try a smaller JPEG, or a screenshot of it.`);
+}
+
 function loadViaImg(blob) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("This image format isn't supported. Try a JPEG or PNG.")); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('img decode failed')); };
     img.src = url;
   });
 }
