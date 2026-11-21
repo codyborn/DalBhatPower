@@ -24,8 +24,7 @@
   }
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
-body { padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom)); }
+html, body { margin: 0; min-height: 100%; }
 h1, h2, h3 { margin: 0 0 .4em; line-height: 1.2; }
 h2 { font-size: 1.1rem; }
 .muted { color: var(--muted); }
@@ -62,7 +61,7 @@ textarea { resize: vertical; }
 
 /* ---------- views ---------- */
 main { width: 100%; }
-.view { display: none; padding: 12px; max-width: 900px; margin: 0 auto; }
+.view { display: none; padding: 12px 12px calc(var(--tabbar) + 24px + env(safe-area-inset-bottom)); max-width: 900px; margin: 0 auto; }
 .view.active { display: block; }
 #view-map { padding: 0; position: relative; max-width: none; }
 #map { height: calc(100dvh - var(--topbar) - var(--filters) - var(--tabbar) - env(safe-area-inset-bottom)); min-height: 320px; }
