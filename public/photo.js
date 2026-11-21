@@ -36,13 +36,72 @@ export async function readPhotoMeta(file) {
   return out;
 }
 
+// ---- HEIC/HEIF support (iPhone photos) ----
+// Safari decodes HEIC natively; other browsers don't, so we convert with heic2any (libheif in
+// WebAssembly), loaded only the first time a HEIC photo shows up.
+const HEIC_LIB = 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js';
+let heicLibPromise;
+function loadHeicLib() {
+  if (!heicLibPromise) {
+    heicLibPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = HEIC_LIB;
+      s.async = true;
+      s.onload = () => (window.heic2any ? resolve(window.heic2any) : reject(new Error('HEIC converter failed to load')));
+      s.onerror = () => { heicLibPromise = null; reject(new Error('Could not load the HEIC converter — check your connection.')); };
+      document.head.appendChild(s);
+    });
+  }
+  return heicLibPromise;
+}
+
+async function looksLikeHeic(file) {
+  if (/image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name || '')) return true;
+  // Some browsers give HEIC files an empty type: check the ISO-BMFF "ftyp" brand.
+  try {
+    const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    const brand = String.fromCharCode(...head.slice(4, 12));
+    return /^ftyp(heic|heix|hevc|heim|heis|mif1|msf1)/.test(brand);
+  } catch {
+    return false;
+  }
+}
+
+function canDecode(blob) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(true); };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(false); };
+    img.src = url;
+  });
+}
+
+const decodable = new WeakMap();
+/**
+ * Returns a Blob the browser can display: the file itself, or a JPEG converted from HEIC.
+ * Cached per File, so preview and upload share one conversion.
+ */
+export function toDisplayable(file) {
+  if (!decodable.has(file)) {
+    decodable.set(file, (async () => {
+      if (!(await looksLikeHeic(file)) || (await canDecode(file))) return file;
+      const heic2any = await loadHeicLib();
+      const out = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
+      return Array.isArray(out) ? out[0] : out;
+    })().catch((err) => { decodable.delete(file); throw err; }));
+  }
+  return decodable.get(file);
+}
+
 /** Resize to max `maxSide` px and re-encode as JPEG, dropping all metadata. */
 export async function reencodeJpeg(file, maxSide = 1600, quality = 0.82) {
+  const source = await toDisplayable(file);
   let bitmap;
   try {
-    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    bitmap = await createImageBitmap(source, { imageOrientation: 'from-image' });
   } catch {
-    bitmap = await loadViaImg(file);
+    bitmap = await loadViaImg(source);
   }
   const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
   const w = Math.round(bitmap.width * scale);
@@ -57,12 +116,12 @@ export async function reencodeJpeg(file, maxSide = 1600, quality = 0.82) {
   return blob;
 }
 
-function loadViaImg(file) {
+function loadViaImg(blob) {
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
+    const url = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Unsupported image format (HEIC? try exporting as JPEG).')); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("This image format isn't supported. Try a JPEG or PNG.")); };
     img.src = url;
   });
 }

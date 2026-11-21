@@ -17,7 +17,7 @@ import {
 
 import { firebaseConfig, firestoreDatabase, functionsRegion, useEmulators, cartoKey } from './config.js';
 import { TOWNS, townKey, nearestTown, inNepal, NEPAL_BOUNDS } from './towns.js';
-import { readPhotoMeta, reencodeJpeg } from './photo.js';
+import { readPhotoMeta, reencodeJpeg, toDisplayable } from './photo.js';
 import { scatterChart, lineChart, linearFit } from './charts.js';
 
 // ---------------------------------------------------------------- Firebase
@@ -907,8 +907,7 @@ $('#r-photo').addEventListener('change', async (e) => {
   const chips = $('#r-meta');
   chips.innerHTML = '';
   if (!file) { preview.hidden = true; return; }
-  preview.src = URL.createObjectURL(file);
-  preview.hidden = false;
+  showPreview(file, preview);
   const meta = await readPhotoMeta(file);
   draft.meta = meta;
   const out = [];
@@ -934,9 +933,25 @@ $('#p-photo').addEventListener('change', (e) => {
   const file = e.target.files[0];
   const preview = $('#p-preview');
   if (!file) { preview.hidden = true; return; }
-  preview.src = URL.createObjectURL(file);
-  preview.hidden = false;
+  showPreview(file, preview);
 });
+
+/** Show a preview, converting iPhone HEIC photos first where the browser can't display them. */
+async function showPreview(file, img) {
+  img.hidden = true;
+  const timer = setTimeout(() => toast('Converting iPhone photo…'), 400);
+  try {
+    const blob = await toDisplayable(file);
+    if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
+    img.dataset.url = URL.createObjectURL(blob);
+    img.src = img.dataset.url;
+    img.hidden = false;
+  } catch (err) {
+    toast(err.message || "Couldn't read this photo. Try a JPEG or PNG.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function uploadPhoto(file, kind) {
   const blob = await reencodeJpeg(file);
