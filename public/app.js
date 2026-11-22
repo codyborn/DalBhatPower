@@ -790,39 +790,91 @@ function renderSuggest(items, note) {
   suggestItems = items;
   suggestIndex = items.length ? 0 : -1;
   suggestBox.innerHTML = items.map((p, i) => `
-    <li role="option" data-i="${i}" class="${i === 0 ? 'active' : ''}">${esc(p.name)}<small>${esc(p.detail || '')}</small></li>`).join('')
+    <li role="option" data-i="${i}" class="${i === 0 ? 'active' : ''}">${p.settlement === false ? '🏷 ' : ''}${esc(p.name)}<small>${esc(p.detail || '')}</small></li>`).join('')
     + (note ? `<li class="note">${esc(note)}</li>` : '');
   const show = items.length > 0 || !!note;
   suggestBox.hidden = !show;
   townInput.setAttribute('aria-expanded', String(show));
 }
 
-async function geocode(q) {
-  if (geocodeAbort) geocodeAbort.abort();
-  geocodeAbort = new AbortController();
+// Trekking villages are spelled many ways; OpenStreetMap usually has just one of them.
+const SPELLING_VARIANTS = [
+  ['gho', 'goa', 'gowa'], ['bimthang', 'bhimthang'], ['tilije', 'tilche', 'tilje'],
+  ['samagaun', 'samagaon', 'sama gaun'], ['dharamsala', 'dharmasala', 'larkya phedi', 'larke phedi'],
+  ['machha khola', 'machhakhola', 'macchha khola'], ['soti khola', 'sotikhola'],
+  ['thorong phedi', 'thorung phedi'], ['chhomrong', 'chomrong'], ['jhinu danda', 'jhinu'],
+  ['lobuche', 'lobuje'], ['gorak shep', 'gorakshep'], ['tengboche', 'thyangboche'],
+  ['namche bazaar', 'namche bazar', 'namche'], ['syabrubesi', 'syabru besi'],
+  ['kyanjin gompa', 'kyangjin gompa', 'kyanjin'], ['ghorepani', 'ghorapani'], ['muktinath', 'mukti nath'],
+];
+
+function cleanQuery(q) {
+  return q.replace(/,?\s*nepal\s*$/i, '').replace(/\s+/g, ' ').trim();
+}
+
+function queryVariants(q) {
+  const base = cleanQuery(q);
+  const key = base.toLowerCase();
+  const group = SPELLING_VARIANTS.find((g) => g.includes(key));
+  return [base, ...(group ? group.filter((v) => v !== key) : [])].slice(0, 3);
+}
+
+const SETTLEMENT_TYPES = new Set(['city', 'town', 'village', 'hamlet', 'suburb', 'neighbourhood', 'quarter',
+  'locality', 'isolated_dwelling', 'municipality', 'county', 'state_district']);
+const pause = (ms, signal) => new Promise((res, rej) => {
+  const t = setTimeout(res, ms);
+  signal.addEventListener('abort', () => { clearTimeout(t); rej(new DOMException('Aborted', 'AbortError')); });
+});
+
+async function nominatim(params, signal) {
   const url = 'https://nominatim.openstreetmap.org/search?' + new URLSearchParams({
-    q, format: 'jsonv2', countrycodes: 'np', limit: '6', 'accept-language': 'en',
+    format: 'jsonv2', countrycodes: 'np', limit: '8', 'accept-language': 'en', ...params,
   });
-  const res = await fetch(url, { signal: geocodeAbort.signal, headers: { Accept: 'application/json' } });
+  const res = await fetch(url, { signal, headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Search failed (${res.status})`);
-  const rows = await res.json();
-  return rows
-    .map((r) => ({
+  return (await res.json()).map((r) => {
+    const settlement = r.category === 'place' || SETTLEMENT_TYPES.has(r.addresstype);
+    const area = r.display_name.split(',').slice(1, 3).join(',').trim();
+    const kind = settlement ? '' : `${String(r.type || r.category).replace(/_/g, ' ')} · `;
+    return {
       name: (r.name || r.display_name.split(',')[0]).slice(0, 60),
       lat: Number(r.lat),
       lng: Number(r.lon),
-      detail: r.display_name.split(',').slice(1, 4).join(',').trim(),
-    }))
-    .filter((p) => p.name && inNepal(p.lat, p.lng));
+      settlement,
+      detail: kind + area,
+    };
+  }).filter((p) => p.name && inNepal(p.lat, p.lng));
 }
 
-/** Move the pin to a place without closing the suggestion list. */
-function applyPlace(p, status) {
-  draft.townAuto = false;
-  setLocation(p.lat, p.lng, 'map');
-  $('#r-loc-status').textContent = status || `Pin set to ${p.name} — drag it to the exact spot if you like`;
+/**
+ * Villages and towns first (trying common spelling variants), then — only if none — anything
+ * else OpenStreetMap knows by that name (hotels, shops…), clearly labelled.
+ * Requests are spaced ≥1 s apart to respect Nominatim's usage policy.
+ */
+async function geocode(q) {
+  if (geocodeAbort) geocodeAbort.abort();
+  geocodeAbort = new AbortController();
+  const { signal } = geocodeAbort;
+  const variants = queryVariants(q);
+  const places = [];
+  for (let i = 0; i < variants.length; i++) {
+    if (i) await pause(1100, signal);
+    places.push(...await nominatim({ q: variants[i], featureType: 'settlement' }, signal));
+    if (places.length >= 3) break;
+  }
+  if (!places.length) {
+    if (variants.length) await pause(1100, signal);
+    places.push(...await nominatim({ q: variants[0] }, signal));
+  }
+  // Same name can be two different villages (e.g. Jagat): de-dupe by name + rough position.
+  const seen = new Set();
+  return places
+    .sort((a, b) => b.settlement - a.settlement)
+    .filter((p) => {
+      const k = `${townKey(p.name)}@${p.lat.toFixed(2)},${p.lng.toFixed(2)}`;
+      return !seen.has(k) && seen.add(k);
+    });
 }
-
 townInput.addEventListener('input', () => {
   draft.townAuto = false;
   const q = townInput.value.trim();
@@ -838,13 +890,15 @@ townInput.addEventListener('input', () => {
     try {
       const remote = await geocode(q);
       if (townInput.value.trim() !== q) return; // user kept typing
-      const seen = new Set(local.map((p) => townKey(p.name)));
-      const merged = [...local, ...remote.filter((p) => !seen.has(townKey(p.name)) && seen.add(townKey(p.name)))];
-      renderSuggest(merged.slice(0, 8), merged.length ? null : 'No places found — tap the map to set the spot');
+      const localKeys = new Set(local.map((p) => townKey(p.name)));
+      const merged = [...local, ...remote.filter((p) => !localKeys.has(townKey(p.name)))];
+      renderSuggest(merged.slice(0, 8), merged.length
+        ? (merged.some((p) => p.settlement !== false) ? null : 'No village by that name — pick a nearby one and drag the pin, or tap the map')
+        : 'Not found — keep the name, and tap the map (or pick a nearby village and drag the pin)');
     } catch (err) {
       if (err.name !== 'AbortError') renderSuggest(local, local.length ? null : "Couldn't search right now — tap the map instead");
     }
-  }, 450); // Nominatim asks for ≤1 request/second
+  }, 600); // Nominatim asks for ≤1 request/second
 });
 
 function pickSuggestion(i) {
@@ -859,14 +913,23 @@ function pickSuggestion(i) {
 async function resolveTypedTown() {
   const q = townInput.value.trim();
   if (q.length < 2) return;
-  const key = townKey(q);
+  const key = townKey(cleanQuery(q));
   const local = knownPlaces().find((p) => townKey(p.name) === key);
   if (local) return applyPlace(local);
-  if (draft.lat != null && draft.geoSource !== 'map') return; // photo/device location already set
+  if (draft.lat != null) return; // never move a pin the user (or their photo) already set
   try {
-    const [best] = await geocode(q);
-    if (best && townInput.value.trim() === q) {
-      applyPlace(best, `Pin set to ${best.name}${best.detail ? ' (' + best.detail + ')' : ''} — drag it if that's not right`);
+    const results = await geocode(q);
+    if (townInput.value.trim() !== q) return;
+    // Only auto-place on an unambiguous village/town match; otherwise let the user choose.
+    const variants = new Set(queryVariants(q).map(townKey));
+    const exact = results.filter((p) => p.settlement && variants.has(townKey(p.name)));
+    if (exact.length === 1) {
+      applyPlace(exact[0], `Pin set to ${exact[0].name} (${exact[0].detail}) — drag it if that's not right`);
+    } else {
+      $('#r-loc-status').textContent = results.length
+        ? 'Pick the right place from the list, or tap the map'
+        : 'Not found on the map — keep the name and tap the map to set the spot';
+      if (results.length) { townInput.focus(); renderSuggest(results.slice(0, 8)); }
     }
   } catch { /* ignore; user can tap the map */ }
 }
