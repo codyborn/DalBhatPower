@@ -94,17 +94,30 @@ export function toDisplayable(file) {
   return decodable.get(file);
 }
 
-/** Resize to max `maxSide` px and re-encode as JPEG, dropping all metadata. */
-export async function reencodeJpeg(file, maxSide = 1600, quality = 0.82) {
+/**
+ * Resize, optionally rotate (clockwise, multiples of 90°) and/or centre-crop to a square, then
+ * re-encode as JPEG. Drawing through a canvas drops all metadata (GPS, camera serial, …).
+ */
+export async function reencodeJpeg(file, { maxSide = 1600, quality = 0.82, rotation = 0, square = false } = {}) {
   const source = await toDisplayable(file);
   const bitmap = await decodeSmall(source, maxSide, file);
-  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-  const w = Math.round(bitmap.width * scale);
-  const h = Math.round(bitmap.height * scale);
+  let sx = 0, sy = 0, sw = bitmap.width, sh = bitmap.height;
+  if (square) {
+    const side = Math.min(sw, sh);
+    sx = (sw - side) / 2; sy = (sh - side) / 2; sw = sh = side;
+  }
+  const scale = Math.min(1, maxSide / Math.max(sw, sh));
+  const w = Math.round(sw * scale);
+  const h = Math.round(sh * scale);
+  const rot = ((rotation % 360) + 360) % 360;
+  const swap = rot === 90 || rot === 270;
   const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+  canvas.width = swap ? h : w;
+  canvas.height = swap ? w : h;
+  const ctx = canvas.getContext('2d');
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((rot * Math.PI) / 180);
+  ctx.drawImage(bitmap, sx, sy, sw, sh, -w / 2, -h / 2, w, h);
   if (bitmap.close) bitmap.close();
   const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', quality));
   if (!blob) throw new Error('Could not process this image. Try a JPEG or PNG.');

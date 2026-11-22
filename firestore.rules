@@ -44,8 +44,19 @@ service cloud.firestore {
         && request.resource.data.reputation == 0
         && request.resource.data.createdAt == request.time;
       allow update: if signedIn() && me() == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL'])
-        && shortString(request.resource.data.displayName, 1, 60);
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['displayName', 'photoURL', 'bio', 'homeCountry', 'treks'])
+        && shortString(request.resource.data.displayName, 1, 60)
+        && (request.resource.data.get('photoURL', null) == null
+            || (request.resource.data.photoURL is string
+                && request.resource.data.photoURL.size() <= 500
+                && request.resource.data.photoURL.matches('^https://.*')))
+        && (!('bio' in request.resource.data) || shortString(request.resource.data.bio, 0, 280))
+        && (request.resource.data.get('homeCountry', null) == null
+            || (request.resource.data.homeCountry is string
+                && request.resource.data.homeCountry.matches('^[A-Z]{2}$')))
+        && (!('treks' in request.resource.data)
+            || (request.resource.data.treks is list && request.resource.data.treks.size() <= 40));
       allow delete: if false;
     }
 
@@ -152,6 +163,24 @@ service cloud.firestore {
         && shortString(request.resource.data.note, 0, 200)
         && request.resource.data.createdAt == request.time;
       allow update, delete: if false;
+    }
+
+    // ---------- feedback (bugs / feature ideas) ----------
+    match /feedback/{feedbackId} {
+      allow read: if isMod() || (signedIn() && resource.data.uid == me());
+      allow create: if signedIn() && notBanned()
+        && request.resource.data.keys().hasOnly(['uid', 'kind', 'message', 'page', 'userAgent', 'status', 'createdAt'])
+        && request.resource.data.uid == me()
+        && request.resource.data.kind in ['bug', 'idea', 'other']
+        && shortString(request.resource.data.message, 5, 2000)
+        && shortString(request.resource.data.page, 0, 100)
+        && shortString(request.resource.data.userAgent, 0, 300)
+        && request.resource.data.status == 'open'
+        && request.resource.data.createdAt == request.time;
+      allow update: if isMod()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['open', 'done', 'wontfix'];
+      allow delete: if isMod();
     }
 
     // Moderation log is written by functions, readable by moderators.

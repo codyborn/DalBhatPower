@@ -6,7 +6,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
   getFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, addDoc, writeBatch,
-  deleteDoc, query, where, orderBy, limit, startAfter, serverTimestamp, Timestamp,
+  deleteDoc, updateDoc, query, where, orderBy, limit, startAfter, serverTimestamp, Timestamp, getCountFromServer,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import {
   getStorage, connectStorageEmulator, ref as storageRef, uploadBytes, deleteObject,
@@ -17,7 +17,8 @@ import {
 
 import { firebaseConfig, firestoreDatabase, functionsRegion, useEmulators, cartoKey } from './config.js';
 import { TOWNS, townKey, nearestTown, inNepal, NEPAL_BOUNDS } from './towns.js';
-import { readPhotoMeta, reencodeJpeg, toDisplayable } from './photo.js';
+import { readPhotoMeta, reencodeJpeg } from './photo.js';
+import { TREKS, MAX_TREKS, knownTreks, trekBadge, trekBadges, countryName, countryOptions, flag } from './profile.js';
 import { scatterChart, lineChart, linearFit } from './charts.js';
 
 // ---------------------------------------------------------------- Firebase
@@ -111,6 +112,12 @@ function getUserInfo(uid) {
   return userCache.get(uid);
 }
 
+/** Name + flag + reputation + trek badges, as clickable HTML (opens the public profile). */
+function userLabel(u) {
+  const f = flag(u.homeCountry);
+  return `<span class="who-name">${esc(u.displayName || 'Someone')}</span>${f ? ` <span title="${esc(countryName(u.homeCountry))}">${f}</span>` : ''} <span class="rep-mini">★${esc(u.reputation ?? 0)}</span>${trekBadges(u.treks)}`;
+}
+
 function canonicalTown(name) {
   const key = townKey(name);
   const seed = TOWNS.find((t) => t.key === key);
@@ -186,7 +193,7 @@ function renderAuth() {
   const p = state.profile || {};
   area.innerHTML = `
     <span class="rep" title="Reputation">★ ${esc(p.reputation ?? 0)}</span>
-    ${p.photoURL ? `<img class="avatar" src="${esc(p.photoURL)}" alt="" referrerpolicy="no-referrer">` : ''}`;
+    <button class="avatar-btn" data-action="go-me" aria-label="My profile">${avatarHtml(p, 30)}</button>`;
 }
 
 // ---------------------------------------------------------------- data
@@ -438,7 +445,7 @@ function reportRow(r) {
       <div class="info">
         <div><span class="price-tag">${fmtRs(r.priceNpr)}</span> · ${esc(MEAL_LABEL[r.meal] || r.meal)} · ${esc(VENUE_LABEL[r.venueType] || r.venueType)}${r.refills ? ' · refills' : ''}</div>
         ${r.venueName ? `<div>${esc(r.venueName)}</div>` : ''}
-        <div class="muted small">${fmtDate(r.observedAt)}${r.timeSource === 'exif' ? ' 📷' : ''}${r.elevation != null ? ` · ${fmtM(r.elevation)}` : ''} · <span class="by" data-uid="${esc(r.uid)}">…</span></div>
+        <div class="muted small">${fmtDate(r.observedAt)}${r.timeSource === 'exif' ? ' 📷' : ''}${r.elevation != null ? ` · ${fmtM(r.elevation)}` : ''} · <span class="by" data-action="profile" data-uid="${esc(r.uid)}">…</span></div>
         <div class="actions">
           ${mine ? '' : `<button class="icon-btn" data-action="confirm" data-id="${esc(r.id)}" title="I paid this too">✓ <span class="cc">${r.confirmCount || 0}</span></button>`}
           ${mine ? '' : `<button class="icon-btn" data-action="flag" data-type="reports" data-id="${esc(r.id)}">⚑ Flag</button>`}
@@ -493,7 +500,7 @@ async function hydrateReportRows(reports) {
     if (!row) return;
     const u = await getUserInfo(r.uid);
     const by = $('.by', row);
-    if (by) by.textContent = `${u.displayName || 'Someone'} ★${u.reputation ?? 0}`;
+    if (by) by.innerHTML = userLabel(u);
     if (state.user && r.uid !== state.user.uid) {
       const c = await getDoc(doc(db, 'reports', r.id, 'confirms', state.user.uid)).catch(() => null);
       if (c?.exists()) $('[data-action="confirm"]', row)?.classList.add('on');
@@ -591,7 +598,7 @@ function postCard(p) {
     <article class="post" data-post="${esc(p.id)}">
       <div class="post-head">
         <img class="avatar" alt="" referrerpolicy="no-referrer" hidden>
-        <div class="who"><b class="name">…</b><span class="muted small">${esc(p.town)} · ${fmtDate(p.createdAt)}</span></div>
+        <div class="who"><b class="name" data-action="profile" data-uid="${esc(p.uid)}">…</b><span class="muted small">${esc(p.town)} · ${fmtDate(p.createdAt)}</span></div>
         ${p.priceNpr ? `<span class="price-tag">${fmtRs(p.priceNpr)}</span>` : ''}
       </div>
       <img class="post-img" loading="lazy" src="${esc(photoUrl(p.photoPath))}" alt="Dal bhat in ${esc(p.town)}">
@@ -611,7 +618,7 @@ async function hydratePosts(posts) {
     const card = $(`.post[data-post="${CSS.escape(p.id)}"]`);
     if (!card) return;
     const u = await getUserInfo(p.uid);
-    $('.name', card).textContent = `${u.displayName || 'Someone'} ★${u.reputation ?? 0}`;
+    $('.name', card).innerHTML = userLabel(u);
     if (u.photoURL) { const a = $('.avatar', card); a.src = u.photoURL; a.hidden = false; }
     if (state.user && p.uid !== state.user.uid) {
       const l = await getDoc(doc(db, 'posts', p.id, 'likes', state.user.uid)).catch(() => null);
@@ -906,7 +913,8 @@ $('#r-photo').addEventListener('change', async (e) => {
   const preview = $('#r-preview');
   const chips = $('#r-meta');
   chips.innerHTML = '';
-  if (!file) { preview.hidden = true; return; }
+  clearPreview('r');
+  if (!file) return;
   showPreview(file, preview);
   const meta = await readPhotoMeta(file);
   draft.meta = meta;
@@ -931,30 +939,55 @@ $('#r-photo').addEventListener('change', async (e) => {
 
 $('#p-photo').addEventListener('change', (e) => {
   const file = e.target.files[0];
-  const preview = $('#p-preview');
-  if (!file) { preview.hidden = true; return; }
-  showPreview(file, preview);
+  clearPreview('p');
+  if (!file) return;
+  showPreview(file, $('#p-preview'));
 });
 
-/** Show a preview, converting iPhone HEIC photos first where the browser can't display them. */
+// ---- photo previews with rotation (menus on a table often come out sideways) ----
+const rotation = { r: 0, p: 0 };
+let previewSeq = 0;
+
+/** Render a small, rotated preview (also converts iPhone HEIC where the browser can't show it). */
 async function showPreview(file, img) {
-  img.hidden = true;
-  const timer = setTimeout(() => toast('Converting iPhone photo…'), 400);
+  const k = img.id[0]; // 'r' or 'p'
+  const seq = ++previewSeq;
+  const timer = setTimeout(() => toast('Preparing photo…'), 500);
   try {
-    const blob = await toDisplayable(file);
+    const blob = await reencodeJpeg(file, { maxSide: 900, quality: 0.8, rotation: rotation[k] });
+    if (seq !== previewSeq) return; // a newer rotate/click superseded this one
     if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
     img.dataset.url = URL.createObjectURL(blob);
     img.src = img.dataset.url;
     img.hidden = false;
+    $(`#${k}-rotate`).hidden = false;
   } catch (err) {
+    img.hidden = true;
+    $(`#${k}-rotate`).hidden = true;
     toast(err.message || "Couldn't read this photo. Try a JPEG or PNG.");
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function uploadPhoto(file, kind) {
-  const blob = await reencodeJpeg(file);
+function clearPreview(k) {
+  rotation[k] = 0;
+  $(`#${k}-preview`).hidden = true;
+  $(`#${k}-rotate`).hidden = true;
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-rotate]');
+  if (!btn) return;
+  const k = btn.dataset.rotate;
+  const file = $(`#${k}-photo`).files[0];
+  if (!file) return;
+  rotation[k] = (rotation[k] + Number(btn.dataset.dir) + 360) % 360;
+  showPreview(file, $(`#${k}-preview`));
+});
+
+async function uploadPhoto(file, kind, opts = {}) {
+  const blob = await reencodeJpeg(file, opts);
   if (blob.size > 3 * 1024 * 1024) throw new Error('Photo is too large even after resizing.');
   const name = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}.jpg`;
   const path = `uploads/${state.user.uid}/${kind}/${name}`;
@@ -985,7 +1018,7 @@ $('#form-report').addEventListener('submit', async (e) => {
   btn.textContent = 'Uploading…';
   let path;
   try {
-    path = await uploadPhoto(file, 'menus');
+    path = await uploadPhoto(file, 'menus', { rotation: rotation.r });
     const takenAt = draft.meta?.takenAt;
     const { town, townKey: key } = canonicalTown(townName);
     const shared = {
@@ -1051,7 +1084,7 @@ function resetReportForm() {
   resetPlates();
   $('#r-elev').textContent = '';
   $('#r-loc-status').textContent = 'Pick a town above, or tap the map / drag the pin to fine-tune';
-  $('#r-preview').hidden = true;
+  clearPreview('r');
   $('#r-meta').innerHTML = '';
   Object.assign(draft, { meta: null, lat: null, lng: null, geoSource: null, townAuto: true, elevation: null });
   if (miniMarker) { miniMarker.remove(); miniMarker = null; }
@@ -1074,7 +1107,7 @@ $('#form-post').addEventListener('submit', async (e) => {
   btn.textContent = 'Posting…';
   let path;
   try {
-    path = await uploadPhoto(file, 'meals');
+    path = await uploadPhoto(file, 'meals', { rotation: rotation.p });
     const { town, townKey: key } = canonicalTown(townName);
     await addDoc(collection(db, 'posts'), {
       uid: state.user.uid,
@@ -1089,7 +1122,7 @@ $('#form-post').addEventListener('submit', async (e) => {
       createdAt: serverTimestamp(),
     });
     $('#form-post').reset();
-    $('#p-preview').hidden = true;
+    clearPreview('p');
     toast('Posted! +2 reputation');
     bumpOwnReputation();
     showView('feed');
@@ -1127,20 +1160,28 @@ async function renderMe() {
         <p class="muted">Browsing is open to everyone. Sign in with Google to add prices, post your plate, confirm others' prices and flag abuse.</p>
         <button class="btn primary" data-action="signin">Sign in with Google</button>
       </div>
+      <div class="card small muted">Found a bug or have an idea? Sign in to send feedback.</div>
       ${aboutCard()}`;
     return;
   }
   const p = state.profile || {};
   box.innerHTML = `
     <div class="card">
-      <div style="display:flex;gap:12px;align-items:center">
-        ${p.photoURL ? `<img class="avatar" style="width:48px;height:48px" src="${esc(p.photoURL)}" alt="" referrerpolicy="no-referrer">` : ''}
-        <div style="flex:1"><b>${esc(p.displayName || state.user.displayName || '')}</b><br>
+      <div class="profile-head">
+        ${avatarHtml(p, 56)}
+        <div style="flex:1;min-width:0"><b>${esc(p.displayName || state.user.displayName || '')}</b>
+          ${p.homeCountry ? `<span title="${esc(countryName(p.homeCountry))}">${flag(p.homeCountry)}</span>` : ''}<br>
           <span class="rep">★ ${esc(p.reputation ?? 0)} reputation</span>
           ${state.isMod ? ' <span class="chip">Moderator</span>' : ''}</div>
         <button class="btn small" data-action="signout">Sign out</button>
       </div>
+      ${p.bio ? `<p class="bio">${esc(p.bio)}</p>` : ''}
+      ${knownTreks(p.treks).length ? `<div class="badge-row">${knownTreks(p.treks).map(trekBadge).join('')}</div>` : ''}
       ${p.banned ? '<p class="chip warn" style="margin-top:10px">Your account is suspended from posting.</p>' : ''}
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn small" data-action="edit-profile">✎ Edit profile</button>
+        <button class="btn small ghost" data-action="profile" data-uid="${esc(state.user.uid)}">View public profile</button>
+      </div>
       <details style="margin-top:10px"><summary class="muted small">How reputation works</summary>
         <ul class="small muted">
           <li>+5 per menu photo (+1 for each extra plate on it), +2 per feed post</li>
@@ -1150,9 +1191,11 @@ async function renderMe() {
         </ul>
       </details>
     </div>
+    ${feedbackCard()}
     <div class="card"><h2>My price reports</h2><div id="my-reports"><p class="muted">Loading…</p></div></div>
     <div class="card"><h2>My feed posts</h2><div id="my-posts"><p class="muted">Loading…</p></div></div>
     ${state.isMod ? '<div class="card"><h2>Moderation queue</h2><div id="mod-queue"><p class="muted">Loading…</p></div></div>' : ''}
+    ${state.isMod ? '<div class="card"><h2>Feedback inbox</h2><div id="feedback-inbox"><p class="muted">Loading…</p></div></div>' : ''}
     ${aboutCard()}`;
 
   const uid = state.user.uid;
@@ -1166,7 +1209,8 @@ async function renderMe() {
   $('#my-posts').innerHTML = myPosts?.docs.length
     ? myPosts.docs.map((d) => ownItemRow('posts', d.id, d.data())).join('')
     : '<p class="muted">None yet.</p>';
-  if (state.isMod) renderModQueue();
+  if (state.isMod) { renderModQueue(); renderFeedbackInbox(); }
+  renderMyFeedback();
 }
 
 function ownItemRow(type, id, d) {
@@ -1202,7 +1246,7 @@ async function renderModQueue() {
       <a href="${esc(photoUrl(it.photoPath))}" target="_blank" rel="noopener"><img src="${esc(photoUrl(it.photoPath))}" alt=""></a>
       <div class="info">
         <div>${it.type === 'reports' ? `${fmtRs(it.priceNpr)} · ${esc(it.town)}` : `Post · ${esc(it.town)} ${esc((it.caption || '').slice(0, 80))}`}</div>
-        <div class="muted small">Hidden by ${esc(it.hiddenReason || '?')} · flag score ${it.flagScore || 0} · <span class="by" data-uid="${esc(it.uid)}">…</span></div>
+        <div class="muted small">Hidden by ${esc(it.hiddenReason || '?')} · flag score ${it.flagScore || 0} · <span class="by" data-action="profile" data-uid="${esc(it.uid)}">…</span></div>
         <div class="muted small flag-reasons">…</div>
         <div class="actions">
           <button class="btn small" data-action="mod" data-op="restore" data-type="${esc(it.type)}" data-id="${esc(it.id)}">Restore</button>
@@ -1214,7 +1258,7 @@ async function renderModQueue() {
   items.forEach(async (it) => {
     const row = $(`[data-mod="${CSS.escape(it.type + ':' + it.id)}"]`);
     const u = await getUserInfo(it.uid);
-    $('.by', row).textContent = `${u.displayName || 'Someone'} ★${u.reputation ?? 0}`;
+    $('.by', row).innerHTML = userLabel(u);
     const flags = await getDocs(query(collection(db, 'flags'), where('targetType', '==', it.type), where('targetId', '==', it.id))).catch(() => null);
     $('.flag-reasons', row).textContent = flags?.docs.length
       ? flags.docs.map((f) => FLAG_REASONS[f.data().reason] + (f.data().note ? ` (“${f.data().note}”)` : '')).join(' · ')
@@ -1231,12 +1275,254 @@ function aboutCard() {
     </div>`;
 }
 
+// ---------------------------------------------------------------- profiles
+function avatarHtml(u, size = 30) {
+  const st = `width:${size}px;height:${size}px`;
+  if (u?.photoURL) return `<img class="avatar" style="${st}" src="${esc(u.photoURL)}" alt="" referrerpolicy="no-referrer">`;
+  const initial = (u?.displayName || '?').trim().charAt(0).toUpperCase();
+  return `<span class="avatar avatar-initial" style="${st};font-size:${Math.round(size * 0.45)}px">${esc(initial)}</span>`;
+}
+
+async function openProfile(uid) {
+  openSheet('<p class="muted">Loading profile…</p>');
+  const snap = await getDoc(doc(db, 'users', uid)).catch(() => null);
+  const u = snap?.exists() ? snap.data() : { displayName: 'Someone', reputation: 0 };
+  userCache.set(uid, Promise.resolve(u));
+  const visible = (coll) => getCountFromServer(query(collection(db, coll), where('uid', '==', uid), where('status', '==', 'visible')))
+    .then((c) => c.data().count).catch(() => null);
+  const [nReports, nPosts] = await Promise.all([visible('reports'), visible('posts')]);
+  const treks = knownTreks(u.treks);
+  const joined = u.createdAt ? toDate(u.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : '';
+  openSheet(`
+    <div class="profile-head">
+      ${avatarHtml(u, 72)}
+      <div style="min-width:0">
+        <h2 style="margin:0">${esc(u.displayName || 'Someone')}</h2>
+        ${u.homeCountry ? `<div>${flag(u.homeCountry)} ${esc(countryName(u.homeCountry))}</div>` : ''}
+        <div class="muted small">★ ${esc(u.reputation ?? 0)} reputation${joined ? ` · joined ${esc(joined)}` : ''}</div>
+      </div>
+    </div>
+    ${u.bio ? `<p class="bio">${esc(u.bio)}</p>` : ''}
+    <div class="stats">
+      <div class="stat"><b>${nReports ?? '—'}</b><span>prices</span></div>
+      <div class="stat"><b>${nPosts ?? '—'}</b><span>feed posts</span></div>
+      <div class="stat"><b>${treks.length}</b><span>treks</span></div>
+    </div>
+    ${treks.length ? `<h3>Treks</h3><ul class="trek-list">${treks.map((t) => `<li>${trekBadge(t)} ${esc(t.name)} <span class="muted small">${esc(t.region)}</span></li>`).join('')}</ul>` : ''}
+  `);
+}
+
+function openEditProfile() {
+  const p = state.profile || {};
+  const mine = new Set(p.treks || []);
+  const regions = [...new Set(TREKS.map((t) => t.region))];
+  openSheet(`
+    <h2>Edit profile</h2>
+    <form id="profile-form" class="form">
+      <div class="profile-head">
+        <span id="pf-avatar">${avatarHtml(p, 64)}</span>
+        <div>
+          <label class="btn small" style="display:inline-block;margin:0;color:var(--ink)">Change photo
+            <input type="file" id="pf-photo" accept="image/*,.heic,.heif" hidden>
+          </label>
+          ${p.photoURL ? '<button type="button" class="btn small ghost" id="pf-photo-remove">Remove</button>' : ''}
+        </div>
+      </div>
+      <label>Display name<input id="pf-name" maxlength="60" required value="${esc(p.displayName || '')}"></label>
+      <label>About me <span class="muted small">(<span id="pf-bio-n">${(p.bio || '').length}</span>/280)</span>
+        <textarea id="pf-bio" maxlength="280" rows="3" placeholder="Where you're from, favourite dal bhat stop…">${esc(p.bio || '')}</textarea></label>
+      <label>Home country
+        <select id="pf-country">
+          <option value="">—</option>
+          ${countryOptions().map((c) => `<option value="${c.code}" ${c.code === p.homeCountry ? 'selected' : ''}>${flag(c.code)} ${esc(c.name)}</option>`).join('')}
+        </select></label>
+      <fieldset class="loc treks-pick"><legend>Treks you've done</legend>
+        ${regions.map((r) => `
+          <div class="muted small" style="margin-top:6px">${esc(r)}</div>
+          ${TREKS.filter((t) => t.region === r).map((t) => `
+            <label class="check"><input type="checkbox" name="trek" value="${t.id}" ${mine.has(t.id) ? 'checked' : ''}> ${trekBadge(t)} ${esc(t.name)}</label>`).join('')}`).join('')}
+      </fieldset>
+      <button class="btn primary wide" type="submit" id="pf-save">Save profile</button>
+    </form>`);
+  const form = $('#profile-form');
+  form.dataset.photo = '';
+  $('#pf-bio').addEventListener('input', (e) => { $('#pf-bio-n').textContent = e.target.value.length; });
+  $('#pf-photo').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const blob = await reencodeJpeg(file, { maxSide: 400, quality: 0.85, square: true });
+      form._avatarBlob = blob;
+      form.dataset.photo = 'new';
+      $('#pf-avatar').innerHTML = `<img class="avatar" style="width:64px;height:64px" src="${URL.createObjectURL(blob)}" alt="">`;
+    } catch (err) { toast(err.message); }
+  });
+  $('#pf-photo-remove')?.addEventListener('click', () => {
+    form.dataset.photo = 'remove';
+    form._avatarBlob = null;
+    $('#pf-avatar').innerHTML = avatarHtml({ displayName: $('#pf-name').value }, 64);
+  });
+}
+
+document.addEventListener('submit', async (e) => {
+  if (e.target.id !== 'profile-form') return;
+  e.preventDefault();
+  const form = e.target;
+  const name = $('#pf-name').value.trim();
+  if (!name) return toast('Add a display name.');
+  const treks = $$('input[name="trek"]:checked', form).map((i) => i.value).slice(0, MAX_TREKS);
+  const btn = $('#pf-save');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const update = {
+      displayName: name.slice(0, 60),
+      bio: $('#pf-bio').value.trim().slice(0, 280),
+      homeCountry: $('#pf-country').value || null,
+      treks,
+    };
+    if (form.dataset.photo === 'new' && form._avatarBlob) {
+      const path = `uploads/${state.user.uid}/avatars/${Date.now()}.jpg`;
+      await uploadBytes(storageRef(storage, path), form._avatarBlob, {
+        contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable',
+      });
+      update.photoURL = photoUrl(path);
+    } else if (form.dataset.photo === 'remove') {
+      update.photoURL = null;
+    }
+    await updateDoc(doc(db, 'users', state.user.uid), update);
+    state.profile = { ...state.profile, ...update };
+    userCache.set(state.user.uid, Promise.resolve(state.profile));
+    sheet.close();
+    toast('Profile saved.');
+    renderAuth();
+    renderMe();
+  } catch (err) {
+    console.error(err);
+    toast(friendlyError(err));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save profile';
+  }
+});
+
+// ---------------------------------------------------------------- feedback
+const FEEDBACK_KINDS = { bug: '🐞 Bug', idea: '💡 Feature idea', other: '💬 Other' };
+
+function feedbackCard() {
+  return `
+    <div class="card" id="feedback">
+      <h2>Feedback</h2>
+      <p class="muted small">Found a bug or want a feature? Tell us. Moderators read every message.</p>
+      <form id="feedback-form" class="form">
+        <div class="segmented" role="radiogroup">
+          ${Object.entries(FEEDBACK_KINDS).map(([k, v], i) => `
+            <label class="seg ${i === 0 ? 'active' : ''}" style="margin:0;text-align:center"><input type="radio" name="kind" value="${k}" ${i === 0 ? 'checked' : ''} hidden>${v}</label>`).join('')}
+        </div>
+        <textarea name="message" maxlength="2000" rows="4" required placeholder="What happened, or what would you like? For bugs, what did you expect instead?"></textarea>
+        <button class="btn primary wide" type="submit" style="margin-top:10px">Send feedback</button>
+      </form>
+      <div id="my-feedback"></div>
+    </div>`;
+}
+
+document.addEventListener('change', (e) => {
+  if (e.target.name === 'kind' && e.target.closest('#feedback-form')) {
+    $$('#feedback-form .seg').forEach((l) => l.classList.toggle('active', $('input', l).checked));
+  }
+});
+
+document.addEventListener('submit', async (e) => {
+  if (e.target.id !== 'feedback-form') return;
+  e.preventDefault();
+  if (!state.user) return signIn();
+  const fd = new FormData(e.target);
+  const message = String(fd.get('message') || '').trim();
+  if (message.length < 5) return toast('Tell us a little more.');
+  const btn = $('button[type="submit"]', e.target);
+  btn.disabled = true;
+  try {
+    await addDoc(collection(db, 'feedback'), {
+      uid: state.user.uid,
+      kind: fd.get('kind') || 'other',
+      message: message.slice(0, 2000),
+      page: location.pathname.slice(0, 100),
+      userAgent: navigator.userAgent.slice(0, 300),
+      status: 'open',
+      createdAt: serverTimestamp(),
+    });
+    e.target.reset();
+    $$('#feedback-form .seg').forEach((l, i) => l.classList.toggle('active', i === 0));
+    toast('Thanks — feedback sent!');
+    renderMyFeedback();
+  } catch (err) {
+    toast(friendlyError(err));
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+const FEEDBACK_STATUS = { open: 'Open', done: 'Done ✓', wontfix: "Won't fix" };
+
+async function renderMyFeedback() {
+  const box = $('#my-feedback');
+  if (!box || !state.user) return;
+  const snap = await getDocs(query(collection(db, 'feedback'), where('uid', '==', state.user.uid), orderBy('createdAt', 'desc'), limit(10))).catch(() => null);
+  if (!snap?.docs.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<h3 style="margin-top:14px">Your feedback</h3>` + snap.docs.map((d) => {
+    const f = d.data();
+    return `<div class="report"><div class="info"><div>${esc(FEEDBACK_KINDS[f.kind] || f.kind)} · <span class="status">${esc(FEEDBACK_STATUS[f.status] || f.status)}</span></div>
+      <div class="small">${esc(f.message.slice(0, 200))}${f.message.length > 200 ? '…' : ''}</div>
+      <div class="muted small">${fmtDate(f.createdAt)}</div></div></div>`;
+  }).join('');
+}
+
+async function renderFeedbackInbox() {
+  const box = $('#feedback-inbox');
+  if (!box) return;
+  const snap = await getDocs(query(collection(db, 'feedback'), where('status', '==', 'open'), orderBy('createdAt', 'desc'), limit(50)))
+    .catch((err) => { toast(friendlyError(err)); return null; });
+  if (!snap?.docs.length) { box.innerHTML = '<p class="muted">No open feedback. 🎉</p>'; return; }
+  box.innerHTML = snap.docs.map((d) => {
+    const f = d.data();
+    return `
+      <div class="report" data-feedback="${esc(d.id)}">
+        <div class="info">
+          <div>${esc(FEEDBACK_KINDS[f.kind] || f.kind)} · <span class="by" data-action="profile" data-uid="${esc(f.uid)}">…</span> · <span class="muted small">${fmtDate(f.createdAt)}</span></div>
+          <div style="white-space:pre-wrap">${esc(f.message)}</div>
+          <div class="muted small" style="word-break:break-all">${esc(f.userAgent || '')}</div>
+          <div class="actions">
+            <button class="btn small" data-action="feedback-status" data-status="done" data-id="${esc(d.id)}">Mark done</button>
+            <button class="btn small ghost" data-action="feedback-status" data-status="wontfix" data-id="${esc(d.id)}">Won't fix</button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+  snap.docs.forEach(async (d) => {
+    const u = await getUserInfo(d.data().uid);
+    const el = $(`[data-feedback="${CSS.escape(d.id)}"] .by`);
+    if (el) el.innerHTML = userLabel(u);
+  });
+}
+
 // ---------------------------------------------------------------- global actions
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const action = el.dataset.action;
   if (action === 'signin') return signIn();
+  if (action === 'profile') { e.preventDefault(); return openProfile(el.dataset.uid); }
+  if (action === 'edit-profile') return openEditProfile();
+  if (action === 'go-me') return showView('me');
+  if (action === 'feedback-status') {
+    el.disabled = true;
+    try {
+      await updateDoc(doc(db, 'feedback', el.dataset.id), { status: el.dataset.status });
+      el.closest('.report')?.remove();
+      toast('Updated.');
+    } catch (err) { toast(friendlyError(err)); el.disabled = false; }
+    return;
+  }
   if (action === 'signout') { await signOut(auth); showView('map'); return; }
   if (action === 'close-sheet') return sheet.close();
   if (action === 'confirm') return toggleConfirm(el);

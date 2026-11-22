@@ -94,6 +94,10 @@
             <span>Choose menu photo</span>
           </label>
           <img id="r-preview" class="preview" alt="" hidden />
+          <div class="rotate-bar" id="r-rotate" hidden>
+            <button type="button" class="btn small" data-rotate="r" data-dir="-90" aria-label="Rotate left">⟲ Rotate</button>
+            <button type="button" class="btn small" data-rotate="r" data-dir="90" aria-label="Rotate right">Rotate ⟳</button>
+          </div>
           <div id="r-meta" class="meta-chips"></div>
 
           <div class="plates">
@@ -140,6 +144,10 @@
             <span>Choose a photo of your dal bhat</span>
           </label>
           <img id="p-preview" class="preview" alt="" hidden />
+          <div class="rotate-bar" id="p-rotate" hidden>
+            <button type="button" class="btn small" data-rotate="p" data-dir="-90" aria-label="Rotate left">⟲ Rotate</button>
+            <button type="button" class="btn small" data-rotate="p" data-dir="90" aria-label="Rotate right">Rotate ⟳</button>
+          </div>
           <label>Caption
             <textarea id="p-caption" maxlength="280" rows="3" placeholder="Best gundruk achar on the trail…"></textarea>
           </label>

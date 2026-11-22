@@ -240,6 +240,22 @@ exports.onFlagCreated = onDocumentCreated(on('flags/{flagId}'), async (event) =>
   });
 });
 
+// ---------- feedback ----------
+const MAX_FEEDBACK_PER_HOUR = 5;
+exports.onFeedbackCreated = onDocumentCreated(on('feedback/{feedbackId}'), async (event) => {
+  const snap = event.data;
+  if (!snap) return;
+  const f = snap.data();
+  let recent = 0;
+  try { recent = await countRecent('feedback', f.uid); } catch (err) { logger.error('Feedback count failed', { err: String(err) }); }
+  if (recent > MAX_FEEDBACK_PER_HOUR) {
+    await snap.ref.delete();
+    logger.warn('Feedback rate-limited', { uid: f.uid });
+    return;
+  }
+  logger.info('New feedback', { id: snap.id, kind: f.kind });
+});
+
 // ---------- elevation self-repair (callable) ----------
 /**
  * fillElevation({reportId}) — any signed-in user's browser calls this when it shows a
