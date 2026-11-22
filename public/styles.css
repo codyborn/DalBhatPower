@@ -310,3 +310,5 @@ tr.clickable { cursor: pointer; }
 .attr.attr-collapsed { font-size: 0; padding: 2px; border-radius: 50%; margin: 0 4px 4px 0 !important; }
 .attr.attr-collapsed > :not(.attr-toggle) { display: none; }
 .attr.attr-collapsed .attr-toggle { font-size: 16px; }
+/* Single-line prompt that shrinks to fit narrow phones */
+.one-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: min(1rem, 3.9vw); }
