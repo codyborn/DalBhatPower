@@ -22,6 +22,9 @@ import { readPhotoMeta, reencodeJpeg } from './photo.js';
 import { TREKS, MAX_TREKS, knownTreks, trekBadge, trekBadges, countryName, countryOptions, flag } from './profile.js';
 import { scatterChart, lineChart, linearFit } from './charts.js';
 
+// Replaced with the git commit by the deploy workflow; shown in the About card.
+const APP_VERSION = '__APP_VERSION__';
+
 // ---------------------------------------------------------------- Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -1712,6 +1715,7 @@ function aboutCard() {
       <b>About.</b> Dal Bhat Power is a crowdsourced index of what a plate of dal bhat costs across Nepal, inspired by fuel-price apps.
       Photo timestamps and locations are read on your device and stripped before upload. Report locations are public; feed posts only show the town.
       Elevations from <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>; map © OpenStreetMap contributors.
+      <br><span class="small">Version ${esc(APP_VERSION.startsWith('__') ? 'dev' : APP_VERSION)}</span>
     </div>`;
 }
 
