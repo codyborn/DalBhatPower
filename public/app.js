@@ -2002,6 +2002,7 @@ document.addEventListener('click', async (e) => {
   if (action === 'profile') { e.preventDefault(); return openProfile(el.dataset.uid); }
   if (action === 'edit-profile') return openEditProfile();
   if (action === 'go-me') return showView('me');
+  if (action === 'go-add') return showView('add');
   if (action === 'install') return promptInstall();
   if (action === 'sync-queue') return syncQueue();
   if (action === 'discard-failed') {

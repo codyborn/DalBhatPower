@@ -26,6 +26,8 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
 h1, h2, h3 { margin: 0 0 .4em; line-height: 1.2; }
+a, a:visited, .leaflet-container a { color: var(--brand); text-decoration-color: color-mix(in srgb, var(--brand) 45%, transparent); text-underline-offset: 2px; }
+a:hover, .leaflet-container a:hover { text-decoration-color: var(--brand); }
 h2 { font-size: 1.1rem; }
 .muted { color: var(--muted); }
 .small { font-size: .85rem; }
@@ -258,4 +260,16 @@ tr.clickable { cursor: pointer; }
   .view { padding-bottom: 32px; }
   #map { height: calc(100dvh - var(--topbar) - var(--filters)); }
   .toast { bottom: 24px; left: calc(50% + var(--sidebar) / 2); }
+  .tab.add { display: none; }           /* "Add" lives on the map as a floating button */
+  .fab { display: inline-flex; }
 }
+
+/* Floating "Add price" button on the desktop map */
+.fab {
+  display: none; position: absolute; right: 18px; bottom: 34px; z-index: 600;
+  align-items: center; gap: 6px; padding: 12px 18px 12px 14px; border: none; border-radius: 999px;
+  background: var(--brand); color: var(--brand-ink); font: inherit; font-weight: 700; font-size: 1rem;
+  box-shadow: 0 6px 18px rgba(0,0,0,.25); cursor: pointer;
+}
+.fab:hover { filter: brightness(1.08); }
+.fab span { font-size: .95rem; }
