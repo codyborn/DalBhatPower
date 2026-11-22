@@ -1137,7 +1137,27 @@ async function handleMenuPhoto(file, fromCamera) {
   } else if (meta.gpsOutsideNepal) {
     out.push('<span class="chip warn">Photo location is outside Nepal — set it below</span>');
   } else {
-    out.push('<span class="chip warn">Your phone removed the location — use 📷 Take photo next time, or set the spot below</span>');
+    // Phones strip GPS from gallery photos given to websites. If the photo is recent and
+    // location is allowed, you're probably still nearby — use the phone's location instead.
+    const ageMin = meta.takenAt ? (Date.now() - meta.takenAt.getTime()) / 60000 : Infinity;
+    const android = /android/i.test(navigator.userAgent);
+    if (ageMin < 90 && (await gpsPermission()) === 'granted') {
+      chips.innerHTML = out.join('') + '<span class="chip">📍 Getting your location…</span>';
+      const fix = await getFixOnce(12000);
+      if (selected.r !== file) return;
+      if (fix && inNepal(fix.lat, fix.lng)) {
+        setLocation(fix.lat, fix.lng, 'device');
+        out.push(`<span class="chip">📍 Your current location (photo taken ${Math.max(1, Math.round(ageMin))} min ago) — drag the pin if you've moved</span>`);
+      } else {
+        out.push('<span class="chip warn">No location in photo — set the spot below</span>');
+      }
+    } else if (android) {
+      out.push('<span class="chip warn">Android removes location from gallery photos given to websites — set the spot below, or use 📷 Take photo next time</span>');
+    } else if (isIOS) {
+      out.push('<span class="chip warn">No location in photo. Tip: when picking a photo, tap <b>Options</b> and turn on <b>Location</b></span>');
+    } else {
+      out.push('<span class="chip warn">No location in photo — set the spot below</span>');
+    }
   }
   chips.innerHTML = out.join('');
 }

@@ -241,3 +241,21 @@ tr.clickable { cursor: pointer; }
 .qr-box svg { width: 100%; height: auto; display: block; }
 .gps-help { background: #fef3c7; color: #92400e; border-radius: 10px; padding: 8px 10px; margin: 8px 0 0; }
 .gps-help[hidden] { display: none; }
+
+/* ---------- desktop: navigation as a left sidebar ---------- */
+@media (min-width: 900px) and (hover: hover) {
+  :root { --sidebar: 92px; }
+  body { padding-left: var(--sidebar); }
+  .topbar { margin-left: calc(-1 * var(--sidebar)); padding-left: 20px; }
+  .tabs {
+    top: var(--topbar); bottom: 0; left: 0; right: auto; width: var(--sidebar); height: auto;
+    padding: 14px 0 0; flex-direction: column; justify-content: flex-start; gap: 6px;
+    border-top: none; border-right: 1px solid var(--line);
+  }
+  .tab { flex: none; height: 68px; font-size: .78rem; border-radius: 12px; margin: 0 8px; }
+  .tab:hover { background: var(--bg); }
+  .tab.active { background: var(--brand-soft); }
+  .view { padding-bottom: 32px; }
+  #map { height: calc(100dvh - var(--topbar) - var(--filters)); }
+  .toast { bottom: 24px; left: calc(50% + var(--sidebar) / 2); }
+}
