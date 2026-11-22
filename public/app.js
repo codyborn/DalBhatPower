@@ -2039,9 +2039,32 @@ async function promptInstall() {
   renderInstall();
 }
 
+// Updates: every deploy ships a new service worker. Check for it on launch, when the app comes
+// back to the foreground, and every 30 minutes; when it takes over, reload once so the new code
+// runs (only if a previous version was in control — never on the very first visit).
 if ('serviceWorker' in navigator && !useEmulators) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => console.warn('Service worker failed', err));
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    location.reload();
+  });
+  window.addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+      const activateWaiting = () => reg.waiting && reg.waiting.postMessage('skip-waiting');
+      activateWaiting();
+      reg.addEventListener('updatefound', () => {
+        const sw = reg.installing;
+        sw?.addEventListener('statechange', () => { if (sw.state === 'installed') activateWaiting(); });
+      });
+      const check = () => reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+      setInterval(check, 30 * 60 * 1000);
+    } catch (err) {
+      console.warn('Service worker failed', err);
+    }
   });
 }
 

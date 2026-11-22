@@ -3,9 +3,10 @@
 //  - Libraries from CDNs: cache first (versioned URLs never change)
 //  - Map tiles and photos: served from cache when available, refreshed in the background
 //  - Firestore / Auth / APIs: untouched (Firestore has its own offline cache)
-const VERSION = 'v1';
+// Replaced with the git commit by the deploy workflow, so every deploy installs a fresh worker.
+const VERSION = '__APP_VERSION__';
 const SHELL = `shell-${VERSION}`;
-const LIBS = `libs-${VERSION}`;
+const LIBS = 'libs-v1'; // versioned CDN URLs never change, so keep this across deploys
 const TILES = 'tiles';
 const PHOTOS = 'photos';
 const MAX_TILES = 2500;
@@ -18,6 +19,11 @@ const SHELL_FILES = [
 const LIB_HOSTS = ['www.gstatic.com', 'unpkg.com', 'cdn.jsdelivr.net'];
 const TILE_HOSTS = ['basemaps.cartocdn.com', 'tile.openstreetmap.org'];
 const PHOTO_HOST = 'firebasestorage.googleapis.com';
+
+// The page asks a waiting worker to take over right away.
+self.addEventListener('message', (event) => {
+  if (event.data === 'skip-waiting') self.skipWaiting();
+});
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
