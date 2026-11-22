@@ -1,6 +1,6 @@
-# 🍛 Dal Bhat Index
+# 🍛 Dal Bhat Power
 
-A crowdsourced map of what a plate of dal bhat costs across Nepal, like fuel-price apps but for lentils and rice. Use it to plot price against elevation and watch how it changes over time.
+Dal Bhat Power is a crowdsourced map of what a plate of dal bhat costs across Nepal, like fuel-price apps but for lentils and rice. Use it to plot price against elevation and watch how it changes over time.
 
 ## Features
 

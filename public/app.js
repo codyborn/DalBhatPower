@@ -1,4 +1,4 @@
-// Dal Bhat Index — frontend (no build step; ES modules from CDNs).
+// Dal Bhat Power — frontend (no build step; ES modules from CDNs).
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
 import {
   getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, onAuthStateChanged,
@@ -1156,7 +1156,7 @@ async function renderMe() {
   if (!state.user) {
     box.innerHTML = `
       <div class="card center">
-        <h2>Join the Dal Bhat Index</h2>
+        <h2>Join the Dal Bhat Power</h2>
         <p class="muted">Browsing is open to everyone. Sign in with Google to add prices, post your plate, confirm others' prices and flag abuse.</p>
         <button class="btn primary" data-action="signin">Sign in with Google</button>
       </div>
@@ -1269,7 +1269,7 @@ async function renderModQueue() {
 function aboutCard() {
   return `
     <div class="card small muted">
-      <b>About.</b> A crowdsourced index of what a plate of dal bhat costs across Nepal, inspired by fuel-price apps.
+      <b>About.</b> Dal Bhat Power is a crowdsourced index of what a plate of dal bhat costs across Nepal, inspired by fuel-price apps.
       Photo timestamps and locations are read on your device and stripped before upload. Report locations are public; feed posts only show the town.
       Elevations from <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>; map © OpenStreetMap contributors.
     </div>`;

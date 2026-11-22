@@ -1,5 +1,5 @@
 /**
- * Dal Bhat Index — Cloud Functions
+ * Dal Bhat Power — Cloud Functions
  *
  * Everything a client must not be trusted with lives here:
  *   - reputation points
