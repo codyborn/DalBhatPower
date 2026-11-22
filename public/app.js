@@ -1354,6 +1354,7 @@ async function syncQueue({ quiet = false } = {}) {
 
 function updateOnlineState() {
   $('#offline-banner').hidden = navigator.onLine;
+renderInstall();
   updateQueueStatus();
   if (navigator.onLine) syncQueue({ quiet: true });
 }
@@ -1799,9 +1800,14 @@ async function renderFeedbackInbox() {
 let installEvent = null;
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// Laptops/desktops get a QR code to open the app on their phone instead of a desktop install.
+const isMobileDevice = navigator.userAgentData?.mobile
+  ?? (isIOS || /android|mobile|iphone|ipod/i.test(navigator.userAgent));
+const isDesktop = !isMobileDevice;
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
+  if (isDesktop) return; // we offer a phone QR code instead
   installEvent = e;
   renderInstall();
 });
@@ -1813,6 +1819,11 @@ window.addEventListener('appinstalled', () => {
 
 function installCard() {
   if (isStandalone()) return '';
+  if (isDesktop) {
+    return `<div class="card install-card"><h2>📲 Get the app on your phone</h2>
+      <p class="muted small" style="margin:4px 0 0">The app is made for phones: it records GPS when you take a menu photo, and saves prices with no signal.</p>
+      <button class="btn primary" data-action="install" style="margin-top:10px">Show QR code</button></div>`;
+  }
   const why = '<p class="muted small" style="margin:4px 0 0">The app records GPS when you take a menu photo, and saves prices with no signal — they upload once you\'re back online.</p>';
   if (installEvent) {
     return `<div class="card install-card"><h2>📲 Install the app</h2>${why}
@@ -1826,11 +1837,50 @@ function installCard() {
 }
 
 function renderInstall() {
-  $('#install-btn').hidden = !installEvent || isStandalone();
+  $('#install-btn').hidden = isStandalone() || !(installEvent || isDesktop);
+  $('#install-btn').textContent = isDesktop ? '📲 Get the app' : '📲 Install';
   if ($('#view-me').classList.contains('active')) renderMe();
 }
 
+// QR code library (qrcode-generator), loaded only when a laptop user asks for the code.
+let qrLibPromise;
+function loadQrLib() {
+  if (!qrLibPromise) {
+    qrLibPromise = new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
+      el.onload = () => (window.qrcode ? resolve(window.qrcode) : reject(new Error('QR library missing')));
+      el.onerror = () => { qrLibPromise = null; reject(new Error('Could not load the QR code library')); };
+      document.head.appendChild(el);
+    });
+  }
+  return qrLibPromise;
+}
+
+async function showPhoneQr() {
+  const url = `${location.origin}/?source=qr`;
+  openSheet(`
+    <h2>📲 Open on your phone</h2>
+    <p class="muted">Scan with your phone's camera, then install from there:</p>
+    <div id="qr-box" class="qr-box"><p class="muted">Making QR code…</p></div>
+    <p class="center"><a href="${esc(url)}">${esc(location.host)}</a></p>
+    <ul class="small muted">
+      <li><b>Android:</b> open in Chrome and tap <b>Install</b>.</li>
+      <li><b>iPhone:</b> open in Safari, tap <b>Share ⬆︎</b>, then <b>Add to Home Screen</b>.</li>
+    </ul>`);
+  try {
+    const qrcode = await loadQrLib();
+    const qr = qrcode(0, 'M');
+    qr.addData(url);
+    qr.make();
+    $('#qr-box').innerHTML = qr.createSvgTag({ cellSize: 8, margin: 4, scalable: true });
+  } catch (err) {
+    $('#qr-box').innerHTML = `<p class="muted">${esc(err.message)} — type the address below on your phone instead.</p>`;
+  }
+}
+
 async function promptInstall() {
+  if (isDesktop) return showPhoneQr();
   if (!installEvent) {
     if (isIOS) toast('In Safari: tap Share ⬆︎, then "Add to Home Screen".');
     return;
