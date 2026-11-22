@@ -110,7 +110,7 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd).replace(
 </style>
 </head>
 <body>
-<header><a href="/">🍛 Dal Bhat Power</a></header>
+<header><a href="/"><img src="/icons/icon-192.png" alt="" width="28" height="28" style="border-radius:7px;vertical-align:middle;margin-right:8px">Dal Bhat Power</a></header>
 <main>${body}</main>
 <footer>Crowdsourced by trekkers and travellers. Prices are reported from menu photos and may change. Elevations from Open-Meteo. <a href="/towns">All towns</a> · <a href="/">Open the map</a></footer>
 </body>

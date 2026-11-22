@@ -36,7 +36,8 @@ h2 { font-size: 1.1rem; }
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 14px; background: var(--surface); border-bottom: 1px solid var(--line);
 }
-.brand { font-size: 1.1rem; margin: 0; }
+.brand { font-size: 1.1rem; margin: 0; display: flex; align-items: center; gap: 8px; }
+.brand-icon { width: 30px; height: 30px; border-radius: 8px; display: block; }
 .auth-area { display: flex; align-items: center; gap: 8px; }
 .avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; background: var(--line); }
 .rep { font-size: .8rem; background: var(--brand-soft); color: var(--brand); padding: 2px 8px; border-radius: 999px; font-weight: 600; }
