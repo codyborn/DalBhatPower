@@ -1339,7 +1339,7 @@ $('#form-report').addEventListener('submit', async (e) => {
       throw err;
     }
     const previewElev = draft.elevation;
-    toast(`Thanks! ${plates.length} price${plates.length > 1 ? 's' : ''} added. +${5 + (plates.length - 1)} reputation`);
+    celebrate(5 + (plates.length - 1), `${plates.length} price${plates.length > 1 ? 's' : ''} added — thanks for helping fellow trekkers!`);
     resetReportForm();
     await loadReports();
     // Show elevation straight away from the browser's lookup; the server's value replaces it.
@@ -1417,6 +1417,7 @@ async function syncQueue({ quiet = false } = {}) {
   if (syncing || !state.user || !navigator.onLine) return;
   syncing = true;
   let sent = 0;
+  let earned = 0;
   let townKeyToShow = null;
   try {
     for (const item of await myQueue()) {
@@ -1424,6 +1425,7 @@ async function syncQueue({ quiet = false } = {}) {
         const res = await sendSubmission(item);
         await queueDelete(item.localId);
         sent += item.plates.length;
+        earned += 5 + (item.plates.length - 1);
         townKeyToShow = res.townKey;
         res.ids.forEach((id) => waitForElevation(id, res.townKey));
       } catch (err) {
@@ -1436,7 +1438,7 @@ async function syncQueue({ quiet = false } = {}) {
     syncing = false;
   }
   if (sent) {
-    toast(`⬆️ Uploaded ${sent} saved price${sent > 1 ? 's' : ''}. Thanks!`);
+    celebrate(earned, `⬆️ Uploaded ${sent} saved price${sent > 1 ? 's' : ''} — thanks!`);
     await loadReports();
     bumpOwnReputation();
   } else if (!quiet) {
@@ -1508,7 +1510,7 @@ $('#form-post').addEventListener('submit', async (e) => {
     $('#form-post').reset();
     selected.p = null;
     clearPreview('p');
-    toast('Posted! +2 reputation');
+    celebrate(2, 'Posted to the feed — looks delicious!');
     bumpOwnReputation();
     showView('feed');
     loadFeed(true);
@@ -1991,6 +1993,57 @@ if ('serviceWorker' in navigator && !useEmulators) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch((err) => console.warn('Service worker failed', err));
   });
+}
+
+// ---------------------------------------------------------------- celebration
+// "+7 ★" banner with dal bhat confetti when someone contributes.
+const CONFETTI = ['🍛', '🍛', '🍛', '🍚', '🍚', '⭐', '🥟', '🌶️', '🫓'];
+function celebrate(points, message) {
+  document.querySelector('.celebrate')?.remove();
+  const box = document.createElement('div');
+  box.className = 'celebrate';
+  box.setAttribute('role', 'status');
+  box.innerHTML = `
+    <div class="celebrate-card">
+      <div class="celebrate-points">+<span class="celebrate-n">0</span> <span class="celebrate-star">★</span></div>
+      <div class="celebrate-msg"></div>
+    </div>`;
+  $('.celebrate-msg', box).textContent = message;
+  document.body.appendChild(box);
+
+  // Count up the points.
+  const n = $('.celebrate-n', box);
+  const t0 = performance.now();
+  const step = (t) => {
+    const k = Math.min(1, (t - t0) / 700);
+    n.textContent = Math.round(points * (1 - (1 - k) ** 3));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+
+  // Emoji rain (skipped for people who prefer reduced motion).
+  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const count = Math.min(60, 24 + points * 3);
+    for (let i = 0; i < count; i++) {
+      const e = document.createElement('span');
+      e.className = 'confetti';
+      e.textContent = CONFETTI[Math.floor(Math.random() * CONFETTI.length)];
+      e.style.left = `${Math.random() * 100}vw`;
+      e.style.fontSize = `${18 + Math.random() * 22}px`;
+      e.style.setProperty('--drift', `${(Math.random() - 0.5) * 160}px`);
+      e.style.setProperty('--spin', `${(Math.random() - 0.5) * 720}deg`);
+      e.style.animationDuration = `${1.8 + Math.random() * 1.6}s`;
+      e.style.animationDelay = `${Math.random() * 0.6}s`;
+      box.appendChild(e);
+    }
+  }
+  if (navigator.vibrate) navigator.vibrate(30);
+  box.addEventListener('click', () => box.remove());
+  setTimeout(() => box.classList.add('leaving'), 3200);
+  setTimeout(() => box.remove(), 3800);
+  // Pulse the reputation badge once the server has added the points.
+  setTimeout(() => $('#auth-area .rep')?.classList.add('rep-bump'), 4200);
+  setTimeout(() => $('#auth-area .rep')?.classList.remove('rep-bump'), 5200);
 }
 
 // ---------------------------------------------------------------- global actions
