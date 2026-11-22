@@ -292,16 +292,15 @@ function refreshTownList() {
 }
 
 // ---------------------------------------------------------------- map
-// Clean, low-detail basemap (CARTO Positron / Dark Matter) that follows the light/dark theme.
+// Clean, low-detail light basemap (CARTO Positron) — always light for outdoor readability.
 // CARTO needs a free key (carto.com/basemaps/apikey); without one we fall back to standard OSM
 // tiles rather than showing CARTO's "API key required" watermark.
-const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
 const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 function baseLayer() {
   if (!cartoKey) {
     return L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 16, attribution: OSM_ATTR, crossOrigin: true });
   }
-  const style = darkQuery.matches ? 'dark_all' : 'light_all';
+  const style = 'light_all';
   return L.tileLayer(`https://basemaps.cartocdn.com/rastertiles/${style}/{z}/{x}/{y}.png?key=${encodeURIComponent(cartoKey)}`, {
     maxZoom: 16,
     crossOrigin: true, // CORS tiles can be cached efficiently by the service worker for offline use
@@ -345,10 +344,6 @@ function compactAttribution(m) {
   m.on('layeradd layerremove', () => setTimeout(() => { if (!el.contains(btn)) el.appendChild(btn); }, 0));
 }
 compactAttribution(map);
-darkQuery.addEventListener('change', () => {
-  map.removeLayer(mainTiles);
-  mainTiles = baseLayer().addTo(map);
-});
 const markerLayer = L.layerGroup().addTo(map);
 
 const RAMP = [[253, 230, 138], [245, 158, 11], [194, 65, 12], [127, 29, 29]];
