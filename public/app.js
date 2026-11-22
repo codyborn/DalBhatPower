@@ -80,6 +80,9 @@ const FLAG_REASONS = {
 };
 
 // ---------------------------------------------------------------- helpers
+// Outline trash icon (inherits the text colour), used on delete buttons.
+const TRASH_ICON = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -492,7 +495,7 @@ function reportRow(r) {
         <div class="actions">
           ${mine ? '' : `<button class="icon-btn" data-action="confirm" data-id="${esc(r.id)}" title="I paid this too">✓ <span class="cc">${r.confirmCount || 0}</span></button>`}
           ${mine ? '' : `<button class="icon-btn" data-action="flag" data-type="reports" data-id="${esc(r.id)}">⚑ Flag</button>`}
-          ${mine ? `<button class="icon-btn" data-action="delete" data-type="reports" data-id="${esc(r.id)}">🗑 Delete</button>` : ''}
+          ${mine ? `<button class="icon-btn" data-action="delete" data-type="reports" data-id="${esc(r.id)}">${TRASH_ICON} Delete</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -650,7 +653,7 @@ function postCard(p) {
         ${mine ? `<span class="muted small">♥ ${p.likeCount || 0}</span>`
           : `<button class="icon-btn" data-action="like" data-id="${esc(p.id)}">♥ <span class="lc">${p.likeCount || 0}</span></button>`}
         <span class="spacer"></span>
-        ${mine ? `<button class="icon-btn" data-action="delete" data-type="posts" data-id="${esc(p.id)}">🗑</button>`
+        ${mine ? `<button class="icon-btn" data-action="delete" data-type="posts" data-id="${esc(p.id)}" aria-label="Delete post" title="Delete">${TRASH_ICON}</button>`
           : `<button class="icon-btn" data-action="flag" data-type="posts" data-id="${esc(p.id)}">⚑</button>`}
       </div>
     </article>`;
@@ -1669,7 +1672,7 @@ function ownItemRow(type, id, d) {
         <div>${title}</div>
         <div class="muted small">${fmtDate(d.createdAt)} · <span class="status ${esc(d.status)}">${esc(d.status)}</span>
           ${type === 'reports' ? ` · ✓${d.confirmCount || 0}` : ` · ♥${d.likeCount || 0}`}</div>
-        <div class="actions"><button class="icon-btn" data-action="delete" data-type="${type}" data-id="${esc(id)}">🗑 Delete</button></div>
+        <div class="actions"><button class="icon-btn" data-action="delete" data-type="${type}" data-id="${esc(id)}">${TRASH_ICON} Delete</button></div>
       </div>
     </div>`;
 }

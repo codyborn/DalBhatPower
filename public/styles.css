@@ -312,3 +312,6 @@ tr.clickable { cursor: pointer; }
 .attr.attr-collapsed .attr-toggle { font-size: 16px; }
 /* Single-line prompt that shrinks to fit narrow phones */
 .one-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: min(1rem, 3.9vw); }
+.icon { width: 1.05em; height: 1.05em; vertical-align: -0.17em; }
+.icon-btn { display: inline-flex; align-items: center; gap: 4px; }
+.icon-btn[data-action="delete"]:hover { color: var(--bad); }
