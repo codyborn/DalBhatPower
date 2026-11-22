@@ -236,8 +236,15 @@ async function loadReports() {
     console.error(err);
     toast(friendlyError(err));
   }
+  const firstLoad = !state.loaded;
   state.loaded = true;
   renderMap();
+  if (firstLoad) {
+    const deepTown = new URLSearchParams(location.search).get('town');
+    const t = deepTown && townSearchResults(deepTown.replace(/-/g, ' ')).find((p) => p.key === deepTown);
+    if (t) goToTown(t);
+    else if (deepTown && aggregateTowns(state.reports).some((x) => x.key === deepTown)) openTown(deepTown);
+  }
   if ($('#view-trends').classList.contains('active')) renderTrends();
   refreshTownList();
 }
@@ -312,11 +319,13 @@ function baseLayer() {
 }
 // Keep the view on Nepal: a little padding around the border, no zooming out to the world.
 const NEPAL_VIEW_LIMIT = L.latLngBounds(NEPAL_BOUNDS).pad(0.35);
+const hasMouse = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 const map = L.map('map', {
-  zoomControl: true, attributionControl: true, zoomSnap: 0.25,
+  zoomControl: false, attributionControl: true, zoomSnap: 0.25,
   minZoom: 6, maxBounds: NEPAL_VIEW_LIMIT, maxBoundsViscosity: 0.8,
 }).fitBounds(NEPAL_BOUNDS, { padding: [10, 10] });
 let mainTiles = baseLayer().addTo(map);
+if (hasMouse) L.control.zoom({ position: 'topright' }).addTo(map);
 
 /**
  * Map credits: OpenStreetMap's attribution guideline lets the credit collapse after five
@@ -457,6 +466,100 @@ function openSheet(html) {
   if (!sheet.open) sheet.showModal();
 }
 sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.close(); });
+sheet.addEventListener('close', () => {
+  if (new URLSearchParams(location.search).has('town')) window.history.replaceState(null, '', '/');
+});
+
+async function shareTown(key, name) {
+  const url = `${location.origin}/town/${encodeURIComponent(key)}`;
+  const text = `How much is dal bhat in ${name}? Live prices from trekkers:`;
+  try {
+    if (navigator.share) return await navigator.share({ title: `Dal bhat prices in ${name}`, text, url });
+    await navigator.clipboard.writeText(url);
+    toast('Link copied — paste it anywhere.');
+  } catch (err) {
+    if (err?.name !== 'AbortError') toast(url);
+  }
+}
+
+// ---- town search on the map ----
+const mapSearch = $('#map-search');
+const mapSearchList = $('#map-search-list');
+let mapSearchItems = [];
+let mapSearchIndex = 0;
+
+function townSearchResults(q) {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return [];
+  const withData = aggregateTowns(state.reports);
+  const current = new Map(aggregateTowns(filtered()).map((t) => [t.key, t]));
+  const places = new Map();
+  for (const t of withData) {
+    const c = current.get(t.key);
+    places.set(t.key, { key: t.key, name: t.name, lat: t.lat, lng: t.lng, hasData: true,
+      detail: c ? `${fmtRs(c.median)} · ${c.n} report${c.n > 1 ? 's' : ''}` : `${t.n} report${t.n > 1 ? 's' : ''} (other plates/places)` });
+  }
+  for (const t of TOWNS) {
+    if (!places.has(t.key)) places.set(t.key, { key: t.key, name: t.name, lat: t.lat, lng: t.lng, hasData: false, detail: 'No prices yet — be the first!' });
+  }
+  return [...places.values()]
+    .map((p) => ({ p, i: p.name.toLowerCase().indexOf(needle) }))
+    .filter((x) => x.i >= 0)
+    // Names starting with the query first, then towns with prices, then alphabetical.
+    .sort((a, b) => ((b.i === 0) - (a.i === 0)) || (b.p.hasData - a.p.hasData) || a.p.name.localeCompare(b.p.name))
+    .slice(0, 8)
+    .map((x) => x.p);
+}
+
+function renderMapSearch() {
+  mapSearchItems = townSearchResults(mapSearch.value);
+  mapSearchIndex = 0;
+  const q = mapSearch.value.trim();
+  mapSearchList.innerHTML = mapSearchItems.map((p, i) => `
+    <li role="option" data-i="${i}" class="${i === 0 ? 'active' : ''}">${esc(p.name)}<small>${esc(p.detail)}</small></li>`).join('')
+    || (q ? '<li class="note">No town by that name yet</li>' : '');
+  mapSearchList.hidden = !q;
+  mapSearch.setAttribute('aria-expanded', String(!!q));
+}
+
+function goToTown(p) {
+  mapSearch.value = '';
+  mapSearchList.hidden = true;
+  mapSearch.blur();
+  if (p.lat != null) map.flyTo([p.lat, p.lng], Math.max(map.getZoom(), 11), { duration: 0.8 });
+  if (!p.hasData) return toast(`No prices in ${p.name} yet — add one with ＋`);
+  if (!aggregateTowns(filtered()).some((t) => t.key === p.key)) {
+    // The town only has prices outside the current filters: widen them so it shows up.
+    Object.assign(state.filters, { meal: 'any', venue: 'all', months: HISTORY_MONTHS });
+    $('#f-meal').value = 'any'; $('#f-venue').value = 'all'; $('#f-months').value = String(HISTORY_MONTHS);
+    renderMap();
+    toast('Showing all plates and places for this town');
+  }
+  setTimeout(() => openTown(p.key), 850);
+}
+
+mapSearch.addEventListener('input', renderMapSearch);
+mapSearch.addEventListener('focus', () => { if (mapSearch.value) renderMapSearch(); });
+mapSearch.addEventListener('blur', () => setTimeout(() => { mapSearchList.hidden = true; }, 150));
+mapSearch.addEventListener('keydown', (e) => {
+  if (!mapSearchItems.length) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    mapSearchIndex = (mapSearchIndex + (e.key === 'ArrowDown' ? 1 : -1) + mapSearchItems.length) % mapSearchItems.length;
+    $$('li[data-i]', mapSearchList).forEach((li, i) => li.classList.toggle('active', i === mapSearchIndex));
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    goToTown(mapSearchItems[mapSearchIndex]);
+  } else if (e.key === 'Escape') {
+    mapSearch.value = ''; mapSearchList.hidden = true;
+  }
+});
+mapSearchList.addEventListener('mousedown', (e) => {
+  const li = e.target.closest('li[data-i]');
+  if (!li) return;
+  e.preventDefault();
+  goToTown(mapSearchItems[Number(li.dataset.i)]);
+});
 
 async function openTown(key) {
   const town = aggregateTowns(filtered()).find((t) => t.key === key)
@@ -467,7 +570,10 @@ async function openTown(key) {
   const recent = [...town.reports].sort((a, b) => b.observedAt - a.observedAt).slice(0, 30);
 
   openSheet(`
-    <h2 data-town="${esc(town.key)}">${esc(town.name)}</h2>
+    <div class="sheet-title">
+      <h2 data-town="${esc(town.key)}">${esc(town.name)}</h2>
+      <button class="btn small" data-action="share-town" data-town="${esc(town.key)}" data-name="${esc(town.name)}">↗ Share</button>
+    </div>
     <p class="muted small">${esc(f.meal === 'any' ? 'Any plate' : MEAL_LABEL[f.meal] + ' plate')} ·
       ${esc(f.venue === 'all' ? 'all places' : VENUE_LABEL[f.venue])} · last ${f.months} months</p>
     <div class="stats">
@@ -480,6 +586,7 @@ async function openTown(key) {
     <div id="town-reports">${recent.map(reportRow).join('')}</div>
   `);
   lineChart($('#town-trend'), monthlySeries(history), { yLabel: 'Rs', fmtY: (v) => v, height: 240 });
+  window.history.replaceState(null, '', `/?town=${encodeURIComponent(key)}`);
   hydrateReportRows(recent);
 }
 
@@ -1717,7 +1824,7 @@ async function renderModQueue() {
 function aboutCard() {
   return `
     <div class="card small muted">
-      <b>About.</b> Dal Bhat Power is a crowdsourced index of what a plate of dal bhat costs across Nepal, inspired by fuel-price apps.
+      <b>About.</b> Dal Bhat Power is a crowdsourced index of what a plate of dal bhat costs across Nepal, inspired by fuel-price apps. See <a href="/towns">prices town by town</a>.
       Photo timestamps and locations are read on your device and stripped before upload. Report locations are public; feed posts only show the town.
       Elevations from <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>; map © OpenStreetMap contributors.
       <br><span class="small">Version ${esc(APP_VERSION.startsWith('__') ? 'dev' : APP_VERSION)}</span>
@@ -2139,6 +2246,7 @@ document.addEventListener('click', async (e) => {
   if (action === 'edit-profile') return openEditProfile();
   if (action === 'go-me') return showView('me');
   if (action === 'go-add') return showView('add');
+  if (action === 'share-town') return shareTown(el.dataset.town, el.dataset.name);
   if (action === 'install') return promptInstall();
   if (action === 'sync-queue') return syncQueue();
   if (action === 'discard-failed') {

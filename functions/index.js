@@ -14,7 +14,7 @@ const {
   onDocumentCreated,
   onDocumentDeleted,
 } = require('firebase-functions/v2/firestore');
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
 
@@ -352,3 +352,6 @@ exports.setBanned = onCall(async (request) => {
   });
   return { ok: true };
 });
+
+// ---------- crawlable pages: /town/{key}, /towns, /sitemap.xml (see seo.js) ----------
+exports.seo = onRequest({ memory: '256MiB', maxInstances: 5, concurrency: 40 }, require('./seo').handler(db, Timestamp));

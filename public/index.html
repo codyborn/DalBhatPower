@@ -3,8 +3,20 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>Dal Bhat Power — what a plate costs across Nepal</title>
-  <meta name="description" content="Crowdsourced dal bhat prices across Nepal, mapped against elevation and time." />
+  <title>Dal Bhat Power — dal bhat prices across Nepal, mapped by town and altitude</title>
+  <meta name="description" content="How much does dal bhat cost in Nepal? Crowdsourced prices from teahouses and bhojanalayas — from Kathmandu and Pokhara to Everest Base Camp and the Annapurna Circuit — mapped against altitude." />
+  <link rel="canonical" href="https://dalbhatpower.net/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Dal Bhat Power" />
+  <meta property="og:title" content="Dal Bhat Power — what a plate of dal bhat costs across Nepal" />
+  <meta property="og:description" content="Crowdsourced dal bhat prices from trekkers, mapped by town and altitude. Add the price from your teahouse menu." />
+  <meta property="og:url" content="https://dalbhatpower.net/" />
+  <meta property="og:image" content="https://dalbhatpower.net/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Dal Bhat Power: a thali in front of Himalayan peaks" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Dal Bhat Power","url":"https://dalbhatpower.net/","applicationCategory":"TravelApplication","operatingSystem":"Any","description":"Crowdsourced map of dal bhat prices across Nepal, by town and altitude.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
   <meta name="theme-color" content="#b45309" />
   <meta name="color-scheme" content="light" />
   <link rel="icon" href="/icons/icon-192.png" type="image/png" />
@@ -57,10 +69,25 @@
     </label>
   </div>
 
+  <noscript>
+    <div style="padding:16px;max-width:760px;margin:auto">
+      <h2>Dal bhat prices across Nepal</h2>
+      <p>Dal Bhat Power is a crowdsourced map of what a plate of dal bhat costs in towns and trekking villages across Nepal,
+      from Kathmandu and Pokhara to Namche Bazaar, Everest Base Camp, the Annapurna Circuit, Langtang and Manaslu.
+      See <a href="/towns">dal bhat prices town by town</a>.</p>
+    </div>
+  </noscript>
   <main>
     <section id="view-map" class="view active" aria-label="Map">
       <div id="map"></div>
-      <div id="map-summary" class="map-summary"></div>
+      <div class="map-top">
+        <div class="map-search" role="search">
+          <input id="map-search" type="search" placeholder="🔎 Search a town or village" autocomplete="off"
+                 aria-label="Search towns" role="combobox" aria-controls="map-search-list" aria-expanded="false" />
+          <ul id="map-search-list" class="suggest" role="listbox" hidden></ul>
+        </div>
+        <div id="map-summary" class="map-summary"></div>
+      </div>
       <div class="legend" id="legend"></div>
       <button class="fab" data-action="go-add" aria-label="Add a price">＋ <span>Add price</span></button>
     </section>

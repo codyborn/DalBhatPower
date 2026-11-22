@@ -24,6 +24,29 @@
           }
         ]
       }
+    ],
+    "rewrites": [
+      {
+        "source": "/town/**",
+        "function": {
+          "functionId": "seo",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/towns",
+        "function": {
+          "functionId": "seo",
+          "region": "asia-south1"
+        }
+      },
+      {
+        "source": "/sitemap.xml",
+        "function": {
+          "functionId": "seo",
+          "region": "asia-south1"
+        }
+      }
     ]
   },
   "firestore": {

@@ -11,7 +11,7 @@ import re
 import sys
 
 # Words from UI strings and browser globals that the regex picks up as "calls".
-IGNORE = set("Details FormData GPS address climb in location photo this var ftyp".split())
+IGNORE = set("Details FormData GPS address climb in location photo this var ftyp and".split())
 
 BUILTINS = set("""if for while switch catch return typeof function async await new super import
 setTimeout clearTimeout setInterval clearInterval requestAnimationFrame fetch String Number Boolean Array Object
