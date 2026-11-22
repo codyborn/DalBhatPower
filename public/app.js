@@ -81,6 +81,7 @@ const FLAG_REASONS = {
 
 // ---------------------------------------------------------------- helpers
 // Outline trash icon (inherits the text colour), used on delete buttons.
+const EDIT_ICON = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 const TRASH_ICON = '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -598,10 +599,11 @@ function reportRow(r) {
       <div class="info">
         <div><span class="price-tag">${fmtRs(r.priceNpr)}</span> · ${esc(MEAL_LABEL[r.meal] || r.meal)} · ${esc(VENUE_LABEL[r.venueType] || r.venueType)}${r.refills ? ' · refills' : ''}</div>
         ${r.venueName ? `<div>${esc(r.venueName)}</div>` : ''}
-        <div class="muted small">${fmtDate(r.observedAt)}${r.timeSource === 'exif' ? ' 📷' : ''}${r.elevation != null ? ` · ${fmtM(r.elevation)}` : ''} · <span class="by" data-action="profile" data-uid="${esc(r.uid)}">…</span></div>
+        <div class="muted small">${fmtDate(r.observedAt)}${r.editedAt ? ' · edited' : ''}${r.timeSource === 'exif' ? ' 📷' : ''}${r.elevation != null ? ` · ${fmtM(r.elevation)}` : ''} · <span class="by" data-action="profile" data-uid="${esc(r.uid)}">…</span></div>
         <div class="actions">
           ${mine ? '' : `<button class="icon-btn" data-action="confirm" data-id="${esc(r.id)}" title="I paid this too">✓ <span class="cc">${r.confirmCount || 0}</span></button>`}
           ${mine ? '' : `<button class="icon-btn" data-action="flag" data-type="reports" data-id="${esc(r.id)}">⚑ Flag</button>`}
+          ${mine ? `<button class="icon-btn" data-action="edit" data-type="reports" data-id="${esc(r.id)}">${EDIT_ICON} Edit</button>` : ''}
           ${mine ? `<button class="icon-btn" data-action="delete" data-type="reports" data-id="${esc(r.id)}">${TRASH_ICON} Delete</button>` : ''}
         </div>
       </div>
@@ -751,7 +753,7 @@ function postCard(p) {
     <article class="post" data-post="${esc(p.id)}">
       <div class="post-head">
         <img class="avatar" alt="" referrerpolicy="no-referrer" hidden>
-        <div class="who"><b class="name" data-action="profile" data-uid="${esc(p.uid)}">…</b><span class="muted small">${esc(p.town)} · ${fmtDate(p.createdAt)}</span></div>
+        <div class="who"><b class="name" data-action="profile" data-uid="${esc(p.uid)}">…</b><span class="muted small">${esc(p.town)} · ${fmtDate(p.createdAt)}${p.editedAt ? ' · edited' : ''}</span></div>
         ${p.priceNpr ? `<span class="price-tag">${fmtRs(p.priceNpr)}</span>` : ''}
       </div>
       <img class="post-img" loading="lazy" src="${esc(photoUrl(p.photoPath))}" alt="Dal bhat in ${esc(p.town)}">
@@ -760,7 +762,8 @@ function postCard(p) {
         ${mine ? `<span class="muted small">♥ ${p.likeCount || 0}</span>`
           : `<button class="icon-btn" data-action="like" data-id="${esc(p.id)}">♥ <span class="lc">${p.likeCount || 0}</span></button>`}
         <span class="spacer"></span>
-        ${mine ? `<button class="icon-btn" data-action="delete" data-type="posts" data-id="${esc(p.id)}" aria-label="Delete post" title="Delete">${TRASH_ICON}</button>`
+        ${mine ? `<button class="icon-btn" data-action="edit" data-type="posts" data-id="${esc(p.id)}" aria-label="Edit post" title="Edit">${EDIT_ICON}</button>
+                  <button class="icon-btn" data-action="delete" data-type="posts" data-id="${esc(p.id)}" aria-label="Delete post" title="Delete">${TRASH_ICON}</button>`
           : `<button class="icon-btn" data-action="flag" data-type="posts" data-id="${esc(p.id)}">⚑</button>`}
       </div>
     </article>`;
@@ -1779,7 +1782,9 @@ function ownItemRow(type, id, d) {
         <div>${title}</div>
         <div class="muted small">${fmtDate(d.createdAt)} · <span class="status ${esc(d.status)}">${esc(d.status)}</span>
           ${type === 'reports' ? ` · ✓${d.confirmCount || 0}` : ` · ♥${d.likeCount || 0}`}</div>
-        <div class="actions"><button class="icon-btn" data-action="delete" data-type="${type}" data-id="${esc(id)}">${TRASH_ICON} Delete</button></div>
+        <div class="actions">
+          ${d.status === 'visible' ? `<button class="icon-btn" data-action="edit" data-type="${type}" data-id="${esc(id)}">${EDIT_ICON} Edit</button>` : ''}
+          <button class="icon-btn" data-action="delete" data-type="${type}" data-id="${esc(id)}">${TRASH_ICON} Delete</button></div>
       </div>
     </div>`;
 }
@@ -2185,6 +2190,87 @@ if ('serviceWorker' in navigator && !useEmulators) {
   });
 }
 
+// ---------------------------------------------------------------- editing your own posts
+const VENUE_OPTIONS = { teahouse: 'Trekking teahouse', local: 'Local bhojanalaya', restaurant: 'Restaurant' };
+
+async function openEdit(type, id, from) {
+  const snap = await getDoc(doc(db, type, id)).catch(() => null);
+  if (!snap?.exists()) return toast("Couldn't load that — it may have been deleted.");
+  const d = snap.data();
+  if (d.status !== 'visible') return toast("Hidden items can't be edited.");
+  const select = (name, options, value) => `<select name="${name}">${Object.entries(options)
+    .map(([k, v]) => `<option value="${k}" ${k === value ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>`;
+  const body = type === 'reports' ? `
+      <h2>Edit price</h2>
+      <p class="muted small">${esc(d.town)} · ${fmtDate(d.observedAt)}. The photo and location can't be changed — delete and re-add if they're wrong.</p>
+      <div class="row">
+        <label>Price (Rs)<input name="price" type="number" inputmode="numeric" min="30" max="5000" step="1" required value="${esc(d.priceNpr)}"></label>
+        <label>Plate${select('meal', MEAL_LABEL, d.meal)}</label>
+      </div>
+      <div class="row">
+        <label>Type of place${select('venueType', VENUE_OPTIONS, d.venueType)}</label>
+        <label>Place name<input name="venueName" maxlength="80" value="${esc(d.venueName || '')}"></label>
+      </div>
+      <label class="check"><input type="checkbox" name="refills" ${d.refills ? 'checked' : ''}> Refills included</label>
+      ${d.confirmCount ? `<p class="chip warn" style="margin-top:10px">Changing the price or plate clears its ${d.confirmCount} confirmation${d.confirmCount > 1 ? 's' : ''}.</p>` : ''}`
+    : `
+      <h2>Edit post</h2>
+      <label>Caption<textarea name="caption" maxlength="280" rows="3">${esc(d.caption || '')}</textarea></label>
+      <div class="row">
+        <label>Town<input name="town" list="town-list" maxlength="60" required value="${esc(d.town)}"></label>
+        <label>Price (Rs, optional)<input name="price" type="number" inputmode="numeric" min="30" max="5000" step="1" value="${d.priceNpr ?? ''}"></label>
+      </div>`;
+  openSheet(`<form id="edit-form" class="form" data-type="${esc(type)}" data-id="${esc(id)}" data-from="${esc(from)}">
+    ${body}
+    <button class="btn primary wide" type="submit" style="margin-top:14px">Save changes</button></form>`);
+}
+
+document.addEventListener('submit', async (e) => {
+  if (e.target.id !== 'edit-form') return;
+  e.preventDefault();
+  const form = e.target;
+  const { type, id, from } = form.dataset;
+  const fd = new FormData(form);
+  const priceRaw = String(fd.get('price') ?? '').trim();
+  const price = priceRaw === '' ? null : Number(priceRaw);
+  if (price != null && (!Number.isInteger(price) || price < 30 || price > 5000)) return toast('Price should be a whole number between 30 and 5000.');
+  let update;
+  if (type === 'reports') {
+    if (price == null) return toast('Enter the price.');
+    update = {
+      priceNpr: price,
+      meal: fd.get('meal'),
+      venueType: fd.get('venueType'),
+      venueName: String(fd.get('venueName') || '').trim().slice(0, 80),
+      refills: fd.get('refills') === 'on',
+    };
+  } else {
+    const townName = String(fd.get('town') || '').trim();
+    if (!townName) return toast('Which town?');
+    update = { caption: String(fd.get('caption') || '').trim().slice(0, 280), ...canonicalTown(townName), priceNpr: price };
+  }
+  const btn = $('button[type="submit"]', form);
+  btn.disabled = true;
+  try {
+    await updateDoc(doc(db, type, id), { ...update, editedAt: serverTimestamp() });
+    toast('Saved.');
+    if (type === 'reports') {
+      const r = state.reports.find((x) => x.id === id);
+      if (r) Object.assign(r, update, { editedAt: new Date() });
+      renderMap();
+      if ($('#view-trends').classList.contains('active')) renderTrends();
+      if (from === 'town' && r) return openTown(r.townKey);
+    } else if ($('#view-feed').classList.contains('active')) {
+      loadFeed(true);
+    }
+    sheet.close();
+    if ($('#view-me').classList.contains('active')) renderMe();
+  } catch (err) {
+    toast(friendlyError(err));
+    btn.disabled = false;
+  }
+});
+
 // ---------------------------------------------------------------- celebration
 // "+7 ★" banner with dal bhat confetti when someone contributes.
 const CONFETTI = ['🍛', '🍛', '🍛', '🍚', '🍚', '⭐', '🥟', '🌶️', '🫓'];
@@ -2246,6 +2332,7 @@ document.addEventListener('click', async (e) => {
   if (action === 'edit-profile') return openEditProfile();
   if (action === 'go-me') return showView('me');
   if (action === 'go-add') return showView('add');
+  if (action === 'edit') return openEdit(el.dataset.type, el.dataset.id, el.closest('#sheet') ? 'town' : 'list');
   if (action === 'share-town') return shareTown(el.dataset.town, el.dataset.name);
   if (action === 'install') return promptInstall();
   if (action === 'sync-queue') return syncQueue();

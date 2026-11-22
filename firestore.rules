@@ -96,7 +96,19 @@ service cloud.firestore {
         && request.resource.data.confirmCount == 0
         && request.resource.data.createdAt == request.time;
 
-      allow update: if false;   // edits go through functions only
+      // Owners can correct a visible report's details; photo, place and counters stay fixed.
+      allow update: if signedIn() && notBanned()
+        && resource.data.uid == me()
+        && resource.data.status == 'visible'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['priceNpr', 'meal', 'venueType', 'venueName', 'refills', 'editedAt'])
+        && request.resource.data.priceNpr is int
+        && request.resource.data.priceNpr >= 30 && request.resource.data.priceNpr <= 5000
+        && request.resource.data.meal in ['veg', 'chicken', 'egg', 'mutton', 'fish', 'other']
+        && request.resource.data.venueType in ['local', 'teahouse', 'restaurant']
+        && shortString(request.resource.data.venueName, 0, 80)
+        && request.resource.data.refills is bool
+        && request.resource.data.editedAt == request.time;
       allow delete: if signedIn() && resource.data.uid == me();
 
       // "I paid this too" confirmations — one per user, not on your own report.
@@ -133,7 +145,17 @@ service cloud.firestore {
         && request.resource.data.flagScore == 0
         && request.resource.data.createdAt == request.time;
 
-      allow update: if false;
+      allow update: if signedIn() && notBanned()
+        && resource.data.uid == me()
+        && resource.data.status == 'visible'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['caption', 'town', 'townKey', 'priceNpr', 'editedAt'])
+        && shortString(request.resource.data.caption, 0, 280)
+        && validTown(request.resource.data)
+        && (request.resource.data.priceNpr == null
+            || (request.resource.data.priceNpr is int
+                && request.resource.data.priceNpr >= 30 && request.resource.data.priceNpr <= 5000))
+        && request.resource.data.editedAt == request.time;
       allow delete: if signedIn() && resource.data.uid == me();
 
       match /likes/{uid} {

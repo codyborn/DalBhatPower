@@ -13,6 +13,7 @@ const { setGlobalOptions } = require('firebase-functions/v2');
 const {
   onDocumentCreated,
   onDocumentDeleted,
+  onDocumentUpdated,
 } = require('firebase-functions/v2/firestore');
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const logger = require('firebase-functions/logger');
@@ -144,6 +145,23 @@ exports.onReportDeleted = onDocumentDeleted(on('reports/{reportId}'), async (eve
   await deleteReportPhotoIfUnused(r.photoPath, event.params.reportId);
   // Clean up the confirms sub-collection.
   await db.recursiveDelete(db.collection(`reports/${event.params.reportId}/confirms`));
+});
+
+/**
+ * When an owner changes a report's price or plate, the existing "I paid this too" confirmations
+ * no longer vouch for it: remove them (onConfirmDeleted then adjusts the count and reputation).
+ */
+exports.onReportUpdated = onDocumentUpdated(on('reports/{reportId}'), async (event) => {
+  const before = event.data.before.data();
+  const after = event.data.after.data();
+  if (!before || !after) return;
+  if (before.priceNpr === after.priceNpr && before.meal === after.meal) return;
+  const confirms = await db.collection(`reports/${event.params.reportId}/confirms`).get();
+  if (confirms.empty) return;
+  const batch = db.batch();
+  confirms.docs.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
+  logger.info('Cleared confirmations after edit', { id: event.params.reportId, n: confirms.size });
 });
 
 exports.onConfirmCreated = onDocumentCreated(on('reports/{reportId}/confirms/{uid}'), async (event) => {
