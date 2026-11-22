@@ -21,7 +21,9 @@ export async function readPhotoMeta(file) {
         const now = Date.now();
         if (t.getTime() > Date.UTC(2015, 0, 1) && t.getTime() < now + 24 * 3600 * 1000) out.takenAt = t;
       }
-      if (typeof meta.latitude === 'number' && typeof meta.longitude === 'number') {
+      // Android writes 0,0 when it redacts location ("Null Island") — treat that as no location.
+      const redacted = Math.abs(meta.latitude) < 0.001 && Math.abs(meta.longitude) < 0.001;
+      if (typeof meta.latitude === 'number' && typeof meta.longitude === 'number' && !redacted) {
         if (inNepal(meta.latitude, meta.longitude)) {
           out.lat = meta.latitude;
           out.lng = meta.longitude;
