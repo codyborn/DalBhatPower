@@ -148,7 +148,7 @@ async function decodeSmall(blob, maxSide, original) {
   }
   console.error('Image decode failed', { type: original.type, size: original.size, name: original.name, lastErr });
   const mb = (original.size / 1024 / 1024).toFixed(1);
-  throw new Error(`Couldn't read this photo (${original.type || 'unknown type'}, ${mb} MB). Try a smaller JPEG, or a screenshot of it.`);
+  throw new Error(`Couldn't read this photo (${original.type || 'unknown type'}, ${mb} MB${lastErr?.name ? `, ${lastErr.name}` : ''}). Try picking it again.`);
 }
 
 function loadViaImg(blob) {

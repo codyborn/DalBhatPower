@@ -1090,11 +1090,30 @@ async function warmGps() {
   if ((await gpsPermission()) === 'granted') { startGps(); getFixOnce(); }
 }
 
-async function handleMenuPhoto(file, fromCamera) {
+/**
+ * Copy a picked photo into memory straight away. On Android the browser's permission to read
+ * a picked file can lapse (e.g. while you type a caption or the app is in the background),
+ * after which every read fails — so never rely on the original File later.
+ */
+async function snapshotFile(file) {
+  if (!file) return null;
+  try {
+    const buf = await file.arrayBuffer();
+    return new File([buf], file.name || 'photo.jpg', { type: file.type, lastModified: file.lastModified });
+  } catch (err) {
+    console.error('Could not read picked file', err);
+    toast("Couldn't open that photo — please pick it again.");
+    return null;
+  }
+}
+
+async function handleMenuPhoto(picked, fromCamera) {
   const chips = $('#r-meta');
   chips.innerHTML = '';
   clearPreview('r');
-  selected.r = file || null;
+  selected.r = null;
+  const file = await snapshotFile(picked);
+  selected.r = file;
   if (!file) return;
   showPreview(file, $('#r-preview'));
   const meta = await readPhotoMeta(file);
@@ -1164,10 +1183,11 @@ async function handleMenuPhoto(file, fromCamera) {
 $('#r-camera').addEventListener('change', (e) => handleMenuPhoto(e.target.files[0], true));
 $('#r-photo').addEventListener('change', (e) => handleMenuPhoto(e.target.files[0], false));
 
-$('#p-photo').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  selected.p = file || null;
+$('#p-photo').addEventListener('change', async (e) => {
   clearPreview('p');
+  selected.p = null;
+  const file = await snapshotFile(e.target.files[0]);
+  selected.p = file;
   if (!file) return;
   showPreview(file, $('#p-preview'));
 });
@@ -1737,7 +1757,7 @@ function openEditProfile() {
   form.dataset.photo = '';
   $('#pf-bio').addEventListener('input', (e) => { $('#pf-bio-n').textContent = e.target.value.length; });
   $('#pf-photo').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
+    const file = await snapshotFile(e.target.files[0]);
     if (!file) return;
     try {
       const blob = await reencodeJpeg(file, { maxSide: 400, quality: 0.85, square: true });
