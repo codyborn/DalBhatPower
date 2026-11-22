@@ -312,6 +312,36 @@ const map = L.map('map', {
   minZoom: 6, maxBounds: NEPAL_VIEW_LIMIT, maxBoundsViscosity: 0.8,
 }).fitBounds(NEPAL_BOUNDS, { padding: [10, 10] });
 let mainTiles = baseLayer().addTo(map);
+
+/**
+ * Map credits: OpenStreetMap's attribution guideline lets the credit collapse after five
+ * seconds or on the first map interaction, as long as it's fully shown first. We collapse it
+ * to a small ⓘ that expands again when tapped. (The "Leaflet" prefix isn't required.)
+ */
+function compactAttribution(m) {
+  m.attributionControl.setPrefix(false);
+  const el = m.attributionControl.getContainer();
+  el.classList.add('attr');
+  const btn = L.DomUtil.create('button', 'attr-toggle', el);
+  btn.type = 'button';
+  btn.textContent = 'ⓘ';
+  btn.title = 'Map credits';
+  btn.setAttribute('aria-label', 'Show map credits');
+  L.DomEvent.disableClickPropagation(el);
+  let timer;
+  const collapse = () => { clearTimeout(timer); el.classList.add('attr-collapsed'); };
+  const expand = () => {
+    el.classList.remove('attr-collapsed');
+    clearTimeout(timer);
+    timer = setTimeout(collapse, 8000);
+  };
+  btn.addEventListener('click', () => (el.classList.contains('attr-collapsed') ? expand() : collapse()));
+  timer = setTimeout(collapse, 5000);
+  m.once('movestart zoomstart click', collapse);
+  // Leaflet rewrites the credits when tiles change (e.g. dark mode): put the button back.
+  m.on('layeradd layerremove', () => setTimeout(() => { if (!el.contains(btn)) el.appendChild(btn); }, 0));
+}
+compactAttribution(map);
 darkQuery.addEventListener('change', () => {
   map.removeLayer(mainTiles);
   mainTiles = baseLayer().addTo(map);
@@ -676,6 +706,7 @@ function initMiniMap() {
   if (miniMap) { miniMap.invalidateSize(); return; }
   miniMap = L.map('r-map', { minZoom: 6, maxBounds: NEPAL_VIEW_LIMIT }).fitBounds(NEPAL_BOUNDS);
   baseLayer().addTo(miniMap);
+  compactAttribution(miniMap);
   miniMap.on('click', (e) => setLocation(e.latlng.lat, e.latlng.lng, 'map'));
   if (draft.lat != null) setLocation(draft.lat, draft.lng, draft.geoSource);
 }

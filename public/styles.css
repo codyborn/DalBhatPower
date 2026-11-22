@@ -304,3 +304,13 @@ tr.clickable { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .celebrate-card, .celebrate-star, .rep-bump { animation: none; }
 }
+
+/* Compact, collapsible map credits */
+.leaflet-control-attribution.attr { display: flex; align-items: center; gap: 6px; font-size: 10px;
+  background: color-mix(in srgb, var(--surface) 85%, transparent); color: var(--muted);
+  border-radius: 8px 0 0 0; padding: 2px 4px 2px 8px; }
+.attr-toggle { border: none; background: none; color: var(--muted); font-size: 14px; line-height: 1;
+  padding: 2px; cursor: pointer; order: 2; }
+.attr.attr-collapsed { font-size: 0; padding: 2px; border-radius: 50%; margin: 0 4px 4px 0 !important; }
+.attr.attr-collapsed > :not(.attr-toggle) { display: none; }
+.attr.attr-collapsed .attr-toggle { font-size: 16px; }
