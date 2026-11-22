@@ -1156,7 +1156,7 @@ async function renderMe() {
   if (!state.user) {
     box.innerHTML = `
       <div class="card center">
-        <h2>Join the Dal Bhat Power</h2>
+        <h2>Join Dal Bhat Power</h2>
         <p class="muted">Browsing is open to everyone. Sign in with Google to add prices, post your plate, confirm others' prices and flag abuse.</p>
         <button class="btn primary" data-action="signin">Sign in with Google</button>
       </div>
