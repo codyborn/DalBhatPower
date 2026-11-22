@@ -919,6 +919,13 @@ async function geocode(q) {
       return !seen.has(k) && seen.add(k);
     });
 }
+/** Move the pin to a place (from search) and say so under the map. */
+function applyPlace(p, status) {
+  draft.townAuto = false;
+  setLocation(p.lat, p.lng, 'map');
+  $('#r-loc-status').textContent = status || `Pin set to ${p.name} — drag it to the exact spot if you like`;
+}
+
 townInput.addEventListener('input', () => {
   draft.townAuto = false;
   const q = townInput.value.trim();

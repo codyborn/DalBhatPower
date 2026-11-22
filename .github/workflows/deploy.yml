@@ -21,6 +21,12 @@ jobs:
         with:
           node-version: 22
 
+      - name: Check frontend and functions code
+        run: |
+          for f in public/*.js; do cp "$f" "/tmp/$(basename "$f" .js).mjs"; node --check "/tmp/$(basename "$f" .js).mjs"; done
+          node --check functions/index.js
+          python3 scripts/check_js.py public/*.js
+
       - name: Install function dependencies
         run: npm install --no-audit --no-fund
         working-directory: functions
