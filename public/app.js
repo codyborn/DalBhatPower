@@ -145,7 +145,7 @@ function showView(name) {
   if (name === 'map') setTimeout(() => map.invalidateSize(), 50);
   if (name === 'trends') renderTrends();
   if (name === 'feed' && !$('#feed').children.length) loadFeed(true);
-  if (name === 'add') setTimeout(initMiniMap, 50);
+  if (name === 'add') { setTimeout(initMiniMap, 50); warmGps(); }
   if (name === 'me') renderMe();
 }
 $$('.tab').forEach((t) => t.addEventListener('click', () => showView(t.dataset.view)));
@@ -981,7 +981,7 @@ $('#r-use-device').addEventListener('click', () => {
   if (!navigator.geolocation) return toast('Location not available on this device.');
   navigator.geolocation.getCurrentPosition(
     (pos) => setLocation(pos.coords.latitude, pos.coords.longitude, 'device'),
-    () => toast("Couldn't get your location — tap the map instead."),
+    (err) => { lastGpsError = err.code; gpsHelp(true); },
     { enableHighAccuracy: true, timeout: 10000 },
   );
 });
@@ -994,28 +994,101 @@ const selected = { r: null, p: null };
 let gpsWatch = null;
 let gpsStopTimer;
 let lastFix = null;
+let lastGpsError = null; // GeolocationPositionError code: 1 denied, 2 unavailable, 3 timeout
+
+function recordFix(pos) {
+  lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy, at: Date.now() };
+  lastGpsError = null;
+}
 function startGps() {
   if (!navigator.geolocation) return;
   clearTimeout(gpsStopTimer);
-  gpsStopTimer = setTimeout(stopGps, 3 * 60 * 1000);
+  gpsStopTimer = setTimeout(stopGps, 5 * 60 * 1000);
   if (gpsWatch != null) return;
-  gpsWatch = navigator.geolocation.watchPosition(
-    (pos) => { lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy, at: Date.now() }; },
-    () => {},
-    { enableHighAccuracy: true, maximumAge: 30000, timeout: 60000 },
-  );
+  gpsWatch = navigator.geolocation.watchPosition(recordFix, (err) => { lastGpsError = err.code; },
+    { enableHighAccuracy: true, maximumAge: 30000, timeout: 60000 });
 }
 function stopGps() {
   if (gpsWatch != null) navigator.geolocation.clearWatch(gpsWatch);
   gpsWatch = null;
 }
-async function waitForFix(ms = 15000) {
-  const fresh = () => lastFix && Date.now() - lastFix.at < 2 * 60 * 1000 && lastFix.acc < 500;
-  const t0 = Date.now();
-  while (!fresh() && Date.now() - t0 < ms) await new Promise((res) => setTimeout(res, 500));
-  return fresh() ? lastFix : null;
+function getFixOnce(timeout = 15000) {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { recordFix(pos); resolve(lastFix); },
+      (err) => { lastGpsError = err.code; resolve(null); },
+      { enableHighAccuracy: true, maximumAge: 60000, timeout },
+    );
+  });
 }
-$('#r-camera').addEventListener('click', startGps);
+async function gpsPermission() {
+  try { return (await navigator.permissions.query({ name: 'geolocation' })).state; } catch { return 'unknown'; }
+}
+const fixIsFresh = () => lastFix && Date.now() - lastFix.at < 3 * 60 * 1000 && lastFix.acc < 2000;
+async function waitForFix(ms = 15000) {
+  if (fixIsFresh()) return lastFix;
+  // Android may pause the GPS watch while the camera app is in front, so ask again directly.
+  const once = getFixOnce(ms);
+  const t0 = Date.now();
+  while (!fixIsFresh() && lastGpsError !== 1 && Date.now() - t0 < ms) await new Promise((res) => setTimeout(res, 500));
+  if (!fixIsFresh()) await Promise.race([once, new Promise((res) => setTimeout(res, 1000))]);
+  return fixIsFresh() ? lastFix : null;
+}
+
+function gpsHelp(show) {
+  const box = $('#gps-help');
+  if (!show) { box.hidden = true; return; }
+  const android = /android/i.test(navigator.userAgent);
+  const reason = {
+    1: 'Location is blocked for this site.',
+    2: "Your phone couldn't get a location — is Location turned on?",
+    3: 'GPS took too long — step outside or near a window and try again.',
+  }[lastGpsError] || "We couldn't get your location.";
+  const fix = lastGpsError === 1
+    ? (android
+      ? 'To allow it: Android Settings → Location must be on, and Settings → Apps → Chrome → Permissions → Location → "Allow while using the app". Then in Chrome open this site → tap the icon left of the address (or ⋮ → Site settings) → Location → Allow.'
+      : 'To allow it: Settings → Privacy & Security → Location Services → Safari Websites → "While Using the App", then reload.')
+    : 'You can also tap the map or search for the village below.';
+  box.textContent = `📍 ${reason} ${fix}`;
+  box.hidden = false;
+}
+
+// "Take photo": make sure we can read GPS *before* the camera covers the screen. If Chrome's
+// location prompt opens at the same moment as the camera it gets dismissed, and repeated
+// dismissals make Chrome block location for the site.
+$('#r-camera-btn').addEventListener('click', async () => {
+  const input = $('#r-camera');
+  const perm = await gpsPermission();
+  if (perm === 'granted') {
+    startGps();
+    getFixOnce();
+    gpsHelp(false);
+    input.click();
+    return;
+  }
+  if (perm === 'denied') {
+    lastGpsError = 1;
+    gpsHelp(true);
+    input.click(); // still let them take the photo; they can place the pin by hand
+    return;
+  }
+  // 'prompt' / unknown: ask for location first, then open the camera.
+  toast('First, allow location so your photo gets tagged with where you are.');
+  const btn = $('#r-camera-btn');
+  btn.disabled = true;
+  const fix = await getFixOnce(20000);
+  btn.disabled = false;
+  if (fix || lastGpsError !== 1) startGps();
+  gpsHelp(!fix);
+  if (fix) toast('📍 Location on — opening camera…');
+  input.click(); // may be ignored if the prompt took a while; then tap Take photo again
+});
+
+// Warm up GPS as soon as the Add screen opens (only if already allowed — never prompt here).
+async function warmGps() {
+  if ((await gpsPermission()) === 'granted') { startGps(); getFixOnce(); }
+}
 
 async function handleMenuPhoto(file, fromCamera) {
   const chips = $('#r-meta');
@@ -1053,11 +1126,13 @@ async function handleMenuPhoto(file, fromCamera) {
     if (selected.r !== file) return; // user picked another photo meanwhile
     if (fix && inNepal(fix.lat, fix.lng)) {
       out.push(`<span class="chip">📍 Phone GPS (±${Math.round(fix.acc)} m)</span>`);
+      gpsHelp(false);
       setLocation(fix.lat, fix.lng, 'device');
     } else if (fix) {
       out.push('<span class="chip warn">GPS says you\'re outside Nepal — set the spot below</span>');
     } else {
-      out.push('<span class="chip warn">No GPS fix — allow location access, or set the spot below</span>');
+      out.push('<span class="chip warn">No GPS fix — set the spot below</span>');
+      gpsHelp(true);
     }
   } else if (meta.gpsOutsideNepal) {
     out.push('<span class="chip warn">Photo location is outside Nepal — set it below</span>');
@@ -1375,6 +1450,7 @@ function resetReportForm() {
   Object.assign(draft, { meta: null, lat: null, lng: null, geoSource: null, townAuto: true, elevation: null, takenAt: null, timeSource: null });
   selected.r = null;
   stopGps();
+  gpsHelp(false);
   if (miniMarker) { miniMarker.remove(); miniMarker = null; }
   if (miniMap) miniMap.fitBounds(NEPAL_BOUNDS);
 }

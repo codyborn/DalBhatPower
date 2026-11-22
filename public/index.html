@@ -101,7 +101,8 @@
         <form id="form-report" class="card form" autocomplete="off">
           <p class="muted">Take a photo of the menu or price board. Taking it here records where and when — even with no signal. You can also pick one from your gallery.</p>
           <div class="photo-pick">
-            <label class="file pick-camera"><input type="file" id="r-camera" accept="image/*" capture="environment" /><span>📷 Take photo</span></label>
+            <button type="button" class="file pick-camera" id="r-camera-btn">📷 Take photo</button>
+            <input type="file" id="r-camera" accept="image/*" capture="environment" hidden />
             <label class="file"><input type="file" id="r-photo" accept="image/*,.heic,.heif" /><span>🖼 From gallery</span></label>
           </div>
           <img id="r-preview" class="preview" alt="" hidden />
@@ -110,6 +111,7 @@
             <button type="button" class="btn small" data-rotate="r" data-dir="90" aria-label="Rotate right">Rotate ⟳</button>
           </div>
           <div id="r-meta" class="meta-chips"></div>
+          <p id="gps-help" class="gps-help small" hidden></p>
 
           <div class="plates">
             <div class="plates-head"><span>Plate</span><span>Price (Rs)</span></div>
