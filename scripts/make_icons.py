@@ -55,40 +55,74 @@ def draw(maskable):
     img.alpha_composite(fire.filter(ImageFilter.GaussianBlur(S * .002)))
     d = ImageDraw.Draw(img)
 
-    # Plate (side-on view, like the curry-rice emoji)
+    # Steel thali in three-quarter view: rice mound, katoris of dal and tarkari, saag, achar, papad
     cx = X(.5)
-    rim_top, rim_h, rim_w = Y(.60), u * .13, u * .40
+    pcy = Y(.735)                      # plate centre
+    R = u * .43                        # plate radius (x)
+    sq = .5                            # perspective squash (y/x)
+    def ell(x, y, rx, ry):             # box for an ellipse centred at x, y
+        return [x - rx, y - ry, x + rx, y + ry]
+
+    # shadow + plate body (side band) + rim + floor
     sh = Image.new('RGBA', (S, S), (0, 0, 0, 0))
-    ImageDraw.Draw(sh).ellipse([cx - rim_w, rim_top + rim_h * .55, cx + rim_w, rim_top + rim_h * 1.65], fill=(0, 0, 0, 120))
-    img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(S * .015)))
+    ImageDraw.Draw(sh).ellipse(ell(cx, pcy + R * sq * .35, R * 1.02, R * sq * 1.02), fill=(0, 0, 0, 130))
+    img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(S * .016)))
     d = ImageDraw.Draw(img)
-    d.ellipse([cx - rim_w * .62, rim_top + rim_h * .55, cx + rim_w * .62, rim_top + rim_h * 1.25], fill=(150, 155, 162, 255))   # foot
-    d.ellipse([cx - rim_w, rim_top, cx + rim_w, rim_top + rim_h], fill=(214, 218, 224, 255))                                     # rim
-    d.ellipse([cx - rim_w * .86, rim_top + rim_h * .12, cx + rim_w * .86, rim_top + rim_h * .86], fill=(240, 242, 245, 255))     # well
-
-    # Rice dome
-    rw, rh = rim_w * .58, u * .2
-    ry = rim_top + rim_h * .5
-    d.pieslice([cx - rw - u * .04, ry - rh, cx + rw - u * .04, ry + rh], 180, 360, fill=(255, 255, 252, 255))
-    d.ellipse([cx - rw - u * .04, ry - rh * .12, cx + rw - u * .04, ry + rh * .14], fill=(255, 255, 252, 255))
-
-    # Dal poured over the right of the rice, pooling on the plate (kept inside rice + plate well)
-    dal = Image.new('L', (S, S), 0)
-    dd = ImageDraw.Draw(dal)
-    dd.ellipse([cx - u * .02, ry - rh * .78, cx + u * .3, ry + rh * .2], fill=255)
-    dd.ellipse([cx - u * .06, ry - rh * .02, cx + rim_w * .84, ry + rh * .2], fill=255)
-    clip = Image.new('L', (S, S), 0)
-    cd = ImageDraw.Draw(clip)
-    cd.pieslice([cx - rw - u * .04, ry - rh, cx + rw - u * .04, ry + rh], 180, 360, fill=255)
-    cd.ellipse([cx - rim_w * .86, rim_top + rim_h * .12, cx + rim_w * .86, rim_top + rim_h * .86], fill=255)
-    from PIL import ImageChops
-    dal = ImageChops.multiply(dal, clip).filter(ImageFilter.GaussianBlur(S * .002))
-    img.paste((228, 152, 20, 255), (0, 0), dal)
+    d.ellipse(ell(cx, pcy + u * .03, R, R * sq), fill=(140, 146, 154, 255))           # plate edge (depth)
+    d.ellipse(ell(cx, pcy, R, R * sq), fill=(206, 211, 218, 255))                      # rim
+    d.ellipse(ell(cx, pcy + u * .006, R * .86, R * sq * .84), fill=(236, 239, 242, 255))  # floor
+    hl = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(hl).arc(ell(cx, pcy, R * .95, R * sq * .93), 195, 300, fill=(255, 255, 255, 200), width=int(u * .012))
+    img.alpha_composite(hl.filter(ImageFilter.GaussianBlur(S * .003)))
     d = ImageDraw.Draw(img)
-    d.ellipse([cx + u * .1, ry - rh * .6, cx + u * .18, ry - rh * .45], fill=(255, 210, 120, 255))   # shine
-    # Saag and achar on the plate
-    d.ellipse([cx - rim_w * .82, ry - rh * .02, cx - rim_w * .52, ry + rh * .17], fill=(72, 120, 22, 255))
-    d.ellipse([cx + rim_w * .5, ry + rh * .02, cx + rim_w * .7, ry + rh * .15], fill=(190, 30, 30, 255))
+
+    def katori(x, y, r, liquid, lines=None):
+        """Small steel bowl: body band, rim, liquid surface."""
+        h = r * .55
+        d.ellipse(ell(x, y + h * .9, r * .82, r * sq * .8), fill=(120, 126, 134, 255))     # base
+        d.rectangle([x - r * .9, y, x + r * .9, y + h * .9], fill=(176, 182, 190, 255))     # side
+        d.ellipse(ell(x, y + h * .9, r * .9, r * sq * .85), fill=(176, 182, 190, 255))
+        d.ellipse(ell(x, y, r, r * sq), fill=(220, 224, 230, 255))                         # rim
+        d.ellipse(ell(x, y + r * sq * .08, r * .82, r * sq * .74), fill=liquid)            # dal / curry
+        d.ellipse(ell(x - r * .3, y - r * sq * .25, r * .22, r * sq * .14), fill=(255, 255, 255, 110))  # gloss
+        for (ox, oy, rr, c) in (lines or []):
+            d.ellipse(ell(x + ox * r, y + oy * r * sq, rr * r, rr * r * sq), fill=c)
+
+    # Papad standing up behind the rice
+    pr = R * .2
+    pp = (cx + R * .02, pcy - R * sq * .55)
+    d.ellipse(ell(pp[0], pp[1], pr, pr * .9), fill=(232, 196, 126, 255))
+    random_dots = [(-.4, -.3), (.3, -.2), (.1, .35), (-.2, .15), (.45, .25), (-.05, -.55)]
+    for (ox, oy) in random_dots:
+        d.ellipse(ell(pp[0] + ox * pr, pp[1] + oy * pr, pr * .06, pr * .06), fill=(190, 140, 70, 255))
+
+    # Back row first (painter's order): tarkari (left), dal (right)
+    katori(cx - R * .5, pcy - R * sq * .42, R * .26, (214, 150, 40, 255),
+           [(-.3, .05, .16, (240, 210, 120, 255)), (.25, -.1, .14, (236, 196, 96, 255)), (.05, .3, .13, (120, 160, 40, 255))])
+    katori(cx + R * .46, pcy - R * sq * .45, R * .3, (238, 178, 34, 255),
+           [(.2, .15, .07, (200, 130, 20, 255)), (-.15, -.05, .05, (200, 130, 20, 255))])
+
+    # Rice mound (centre-front), with grain texture
+    rx, ry_ = cx - R * .02, pcy + R * sq * .12
+    rw, rh = R * .42, u * .15
+    d.pieslice(ell(rx, ry_, rw, rh), 180, 360, fill=(255, 255, 251, 255))
+    d.ellipse(ell(rx, ry_, rw, rw * sq * .5), fill=(255, 255, 251, 255))
+    import random
+    random.seed(4)
+    for _ in range(90):
+        a = random.uniform(math.pi, 2 * math.pi); rad = random.uniform(.05, .9)
+        gx = rx + rw * rad * math.cos(a); gy = ry_ + rh * rad * math.sin(a)
+        L = u * .012; ang = random.uniform(0, math.pi)
+        d.line([gx - L * math.cos(ang), gy - L * math.sin(ang), gx + L * math.cos(ang), gy + L * math.sin(ang)],
+               fill=(228, 224, 210, 255), width=max(2, int(S * .0025)))
+    d.arc(ell(rx, ry_, rw * .7, rh * .75), 205, 250, fill=(255, 255, 255, 255), width=int(u * .01))
+
+    # Saag pile (front-left), achar (front-right), papad (leaning at the back-centre)
+    for (ox, oy, rr) in ((-.62, .25, .13), (-.5, .33, .12), (-.7, .36, .1), (-.58, .42, .09)):
+        d.ellipse(ell(cx + R * ox, pcy + R * sq * oy, R * rr, R * rr * .7), fill=(58, 108, 24, 255))
+    d.ellipse(ell(cx + R * -.56, pcy + R * sq * .28, R * .05, R * .03), fill=(110, 160, 50, 255))
+    d.ellipse(ell(cx + R * .55, pcy + R * sq * .38, R * .13, R * .085), fill=(196, 40, 24, 255))
+    d.ellipse(ell(cx + R * .51, pcy + R * sq * .34, R * .04, R * .025), fill=(240, 110, 80, 255))
     return img
 
 out = sys.argv[1]
