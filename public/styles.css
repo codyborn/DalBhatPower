@@ -225,3 +225,14 @@ tr.clickable { cursor: pointer; }
 .trek-list li { padding: 5px 0; border-bottom: 1px solid var(--line); }
 .treks-pick .check { margin: 4px 0 !important; }
 #feedback-form .seg { cursor: pointer; font-size: .85rem; }
+
+/* ---------- installable app / offline ---------- */
+.photo-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.photo-pick .file { padding: 18px 8px; }
+.pick-camera { background: var(--brand-soft); border-style: solid !important; border-color: var(--brand) !important; }
+.offline-banner { position: sticky; top: var(--topbar); z-index: 998; background: #fef3c7; color: #92400e;
+  font-size: .85rem; text-align: center; padding: 6px 10px; border-bottom: 1px solid #fde68a; }
+.offline-banner[hidden], .queue-status[hidden], #install-btn[hidden] { display: none; }
+.queue-status { background: var(--brand-soft); color: var(--brand); border-radius: var(--radius); padding: 10px 12px;
+  margin-bottom: 12px; font-size: .9rem; display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.install-card ol { margin: 6px 0 0; padding-left: 20px; }

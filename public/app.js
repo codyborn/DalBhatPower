@@ -5,7 +5,8 @@ import {
   signOut, connectAuthEmulator,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
 import {
-  getFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, addDoc, writeBatch,
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, addDoc, writeBatch,
   deleteDoc, updateDoc, query, where, orderBy, limit, startAfter, serverTimestamp, Timestamp, getCountFromServer,
 } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 import {
@@ -24,8 +25,20 @@ import { scatterChart, lineChart, linearFit } from './charts.js';
 // ---------------------------------------------------------------- Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app, firestoreDatabase || '(default)');
+// Persistent cache: the map and feed still show the last-loaded data with no signal.
+let db;
+try {
+  db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  }, firestoreDatabase || '(default)');
+} catch (err) {
+  console.warn('Offline cache unavailable', err);
+  db = getFirestore(app, firestoreDatabase || '(default)');
+}
 const storage = getStorage(app);
+// Fail fast on bad connections so the submission can be queued instead of hanging for minutes.
+storage.maxUploadRetryTime = 20000;
+storage.maxOperationRetryTime = 20000;
 const functions = getFunctions(app, functionsRegion);
 if (useEmulators) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
@@ -182,6 +195,7 @@ onAuthStateChanged(auth, async (user) => {
   $('#add-forms').hidden = !user;
   if ($('#view-me').classList.contains('active')) renderMe();
   if ($('#view-add').classList.contains('active')) setTimeout(initMiniMap, 50);
+  if (user) { updateQueueStatus(); syncQueue({ quiet: true }); }
 });
 
 function renderAuth() {
@@ -282,11 +296,12 @@ const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
 const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 function baseLayer() {
   if (!cartoKey) {
-    return L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 16, attribution: OSM_ATTR });
+    return L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 16, attribution: OSM_ATTR, crossOrigin: true });
   }
   const style = darkQuery.matches ? 'dark_all' : 'light_all';
   return L.tileLayer(`https://basemaps.cartocdn.com/rastertiles/${style}/{z}/{x}/{y}.png?key=${encodeURIComponent(cartoKey)}`, {
     maxZoom: 16,
+    crossOrigin: true, // CORS tiles can be cached efficiently by the service worker for offline use
     attribution: `${OSM_ATTR} &copy; <a href="https://carto.com/attributions">CARTO</a>`,
   });
 }
@@ -971,37 +986,92 @@ $('#r-use-device').addEventListener('click', () => {
   );
 });
 
-$('#r-photo').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  const preview = $('#r-preview');
+// ---- choosing / taking the menu photo ----
+const selected = { r: null, p: null };
+
+// GPS for in-app photos: phones strip location from photos chosen on websites, so when the
+// photo is taken here we record the phone's own GPS fix (works without signal) and the time.
+let gpsWatch = null;
+let gpsStopTimer;
+let lastFix = null;
+function startGps() {
+  if (!navigator.geolocation) return;
+  clearTimeout(gpsStopTimer);
+  gpsStopTimer = setTimeout(stopGps, 3 * 60 * 1000);
+  if (gpsWatch != null) return;
+  gpsWatch = navigator.geolocation.watchPosition(
+    (pos) => { lastFix = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy, at: Date.now() }; },
+    () => {},
+    { enableHighAccuracy: true, maximumAge: 30000, timeout: 60000 },
+  );
+}
+function stopGps() {
+  if (gpsWatch != null) navigator.geolocation.clearWatch(gpsWatch);
+  gpsWatch = null;
+}
+async function waitForFix(ms = 15000) {
+  const fresh = () => lastFix && Date.now() - lastFix.at < 2 * 60 * 1000 && lastFix.acc < 500;
+  const t0 = Date.now();
+  while (!fresh() && Date.now() - t0 < ms) await new Promise((res) => setTimeout(res, 500));
+  return fresh() ? lastFix : null;
+}
+$('#r-camera').addEventListener('click', startGps);
+
+async function handleMenuPhoto(file, fromCamera) {
   const chips = $('#r-meta');
   chips.innerHTML = '';
   clearPreview('r');
+  selected.r = file || null;
   if (!file) return;
-  showPreview(file, preview);
+  showPreview(file, $('#r-preview'));
   const meta = await readPhotoMeta(file);
   draft.meta = meta;
   const out = [];
   if (meta.takenAt) {
+    draft.takenAt = meta.takenAt;
+    draft.timeSource = 'exif';
     out.push(`<span class="chip">🕒 Taken ${esc(meta.takenAt.toLocaleString())}</span>`);
     const days = (Date.now() - meta.takenAt) / 86400000;
     if (days > 60) out.push(`<span class="chip warn">Photo is ${Math.round(days)} days old — it'll be dated then</span>`);
+  } else if (fromCamera) {
+    draft.takenAt = new Date();
+    draft.timeSource = 'device';
+    out.push(`<span class="chip">🕒 Taken ${esc(draft.takenAt.toLocaleString())}</span>`);
   } else {
+    draft.takenAt = null;
+    draft.timeSource = 'upload';
     out.push('<span class="chip warn">No timestamp in photo — using upload time</span>');
   }
+  chips.innerHTML = out.join('');
+
   if (meta.lat != null) {
     out.push('<span class="chip">📍 Location from photo</span>');
     setLocation(meta.lat, meta.lng, 'exif');
+  } else if (fromCamera) {
+    chips.innerHTML = out.join('') + '<span class="chip" id="gps-chip">📍 Getting GPS fix…</span>';
+    const fix = await waitForFix();
+    if (selected.r !== file) return; // user picked another photo meanwhile
+    if (fix && inNepal(fix.lat, fix.lng)) {
+      out.push(`<span class="chip">📍 Phone GPS (±${Math.round(fix.acc)} m)</span>`);
+      setLocation(fix.lat, fix.lng, 'device');
+    } else if (fix) {
+      out.push('<span class="chip warn">GPS says you\'re outside Nepal — set the spot below</span>');
+    } else {
+      out.push('<span class="chip warn">No GPS fix — allow location access, or set the spot below</span>');
+    }
   } else if (meta.gpsOutsideNepal) {
     out.push('<span class="chip warn">Photo location is outside Nepal — set it below</span>');
   } else {
-    out.push('<span class="chip warn">No location in photo — use your location or tap the map</span>');
+    out.push('<span class="chip warn">Your phone removed the location — use 📷 Take photo next time, or set the spot below</span>');
   }
   chips.innerHTML = out.join('');
-});
+}
+$('#r-camera').addEventListener('change', (e) => handleMenuPhoto(e.target.files[0], true));
+$('#r-photo').addEventListener('change', (e) => handleMenuPhoto(e.target.files[0], false));
 
 $('#p-photo').addEventListener('change', (e) => {
   const file = e.target.files[0];
+  selected.p = file || null;
   clearPreview('p');
   if (!file) return;
   showPreview(file, $('#p-preview'));
@@ -1043,7 +1113,7 @@ document.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-rotate]');
   if (!btn) return;
   const k = btn.dataset.rotate;
-  const file = $(`#${k}-photo`).files[0];
+  const file = selected[k];
   if (!file) return;
   rotation[k] = (rotation[k] + Number(btn.dataset.dir) + 360) % 360;
   showPreview(file, $(`#${k}-preview`));
@@ -1061,10 +1131,64 @@ async function uploadPhoto(file, kind, opts = {}) {
   return path;
 }
 
+// ---- sending a price submission (now, or later from the offline queue) ----
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+function isNetworkError(err) {
+  const code = err?.code || '';
+  return !navigator.onLine
+    || ['storage/retry-limit-exceeded', 'storage/unknown', 'unavailable', 'deadline-exceeded'].includes(code)
+    || err instanceof TypeError
+    || /network|offline|fetch|timed? ?out/i.test(err?.message || '');
+}
+
+/** Upload the photo and write one report per plate. Returns {ids, townKey}. */
+async function sendSubmission(item) {
+  const name = `${item.localId}.jpg`;
+  const path = `uploads/${state.user.uid}/menus/${name}`;
+  await uploadBytes(storageRef(storage, path), item.blob, {
+    contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable',
+  });
+  try {
+    const f = item.fields;
+    const shared = {
+      uid: state.user.uid,
+      town: f.town,
+      townKey: f.townKey,
+      lat: f.lat,
+      lng: f.lng,
+      geoSource: f.geoSource,
+      venueType: f.venueType,
+      venueName: f.venueName,
+      refills: f.refills,
+      photoPath: path,
+      observedAt: f.observedAtMs ? Timestamp.fromMillis(f.observedAtMs) : serverTimestamp(),
+      timeSource: f.timeSource,
+      status: 'visible',
+      flagScore: 0,
+      confirmCount: 0,
+      createdAt: serverTimestamp(),
+    };
+    const batch = writeBatch(db);
+    const ids = item.plates.map((pl, i) => {
+      const ref = doc(collection(db, 'reports'));
+      batch.set(ref, { ...shared, meal: pl.meal, priceNpr: pl.price, plateIndex: i });
+      return ref.id;
+    });
+    // With the offline cache, a commit made just as the signal drops is kept and sent later
+    // by Firestore itself — so don't wait forever for the server's acknowledgement.
+    await Promise.race([batch.commit(), sleep(20000)]);
+    return { ids, townKey: f.townKey };
+  } catch (err) {
+    if (!isNetworkError(err)) deleteObject(storageRef(storage, path)).catch(() => {});
+    throw err;
+  }
+}
+
 $('#form-report').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!state.user) return signIn();
-  const file = $('#r-photo').files[0];
+  const file = selected.r;
   const townName = $('#r-town').value.trim();
   if (!file) return toast('Add a photo of the menu.');
   const { plates, error } = readPlates();
@@ -1078,49 +1202,58 @@ $('#form-report').addEventListener('submit', async (e) => {
 
   const btn = $('#r-submit');
   btn.disabled = true;
-  btn.textContent = 'Uploading…';
-  let path;
+  btn.textContent = 'Preparing…';
   try {
-    path = await uploadPhoto(file, 'menus', { rotation: rotation.r });
-    const takenAt = draft.meta?.takenAt;
+    const blob = await reencodeJpeg(file, { rotation: rotation.r });
+    if (blob.size > 3 * 1024 * 1024) throw new Error('Photo is too large even after resizing.');
     const { town, townKey: key } = canonicalTown(townName);
-    const shared = {
+    const now = Date.now();
+    let timeSource = draft.timeSource || 'upload';
+    let observedAtMs = draft.takenAt ? draft.takenAt.getTime() : null;
+    const item = {
+      localId: `${now}-${Math.random().toString(36).slice(2, 10)}`,
       uid: state.user.uid,
-      town,
-      townKey: key,
-      lat: Number(draft.lat.toFixed(5)),
-      lng: Number(draft.lng.toFixed(5)),
-      geoSource: draft.geoSource,
-      venueType: $('#r-venue').value,
-      venueName: $('#r-venue-name').value.trim().slice(0, 80),
-      refills: $('#r-refills').checked,
-      photoPath: path,
-      observedAt: takenAt ? Timestamp.fromDate(takenAt) : serverTimestamp(),
-      timeSource: takenAt ? 'exif' : 'upload',
-      status: 'visible',
-      flagScore: 0,
-      confirmCount: 0,
-      createdAt: serverTimestamp(),
+      queuedAt: now,
+      blob,
+      plates,
+      fields: {
+        town, townKey: key,
+        lat: Number(draft.lat.toFixed(5)), lng: Number(draft.lng.toFixed(5)), geoSource: draft.geoSource,
+        venueType: $('#r-venue').value,
+        venueName: $('#r-venue-name').value.trim().slice(0, 80),
+        refills: $('#r-refills').checked,
+        observedAtMs, timeSource,
+      },
     };
-    // One document per plate so each plate type is indexed separately; all share the photo.
-    const batch = writeBatch(db);
-    const ids = plates.map((pl, i) => {
-      const ref = doc(collection(db, 'reports'));
-      batch.set(ref, { ...shared, meal: pl.meal, priceNpr: pl.price, plateIndex: i });
-      return ref.id;
-    });
-    await batch.commit();
+    const queueIt = async () => {
+      // Sent later: "upload time" would be wrong, so record when it was submitted on the phone.
+      if (!item.fields.observedAtMs) { item.fields.observedAtMs = now; item.fields.timeSource = 'device'; }
+      await queuePut(item);
+      toast('📴 Saved on your phone — it will upload automatically when you\'re back online.');
+      resetReportForm();
+      updateQueueStatus();
+    };
+    if (!navigator.onLine) return await queueIt();
+
+    btn.textContent = 'Uploading…';
+    let result;
+    try {
+      result = await sendSubmission(item);
+    } catch (err) {
+      if (isNetworkError(err)) return await queueIt();
+      throw err;
+    }
     const previewElev = draft.elevation;
     toast(`Thanks! ${plates.length} price${plates.length > 1 ? 's' : ''} added. +${5 + (plates.length - 1)} reputation`);
     resetReportForm();
     await loadReports();
     // Show elevation straight away from the browser's lookup; the server's value replaces it.
-    for (const id of ids) {
+    for (const id of result.ids) {
       const r = state.reports.find((x) => x.id === id);
       if (r && typeof r.elevation !== 'number' && typeof previewElev === 'number') { r.elevation = previewElev; r.elevationPreview = true; }
     }
     renderMap();
-    ids.forEach((id) => waitForElevation(id, key));
+    result.ids.forEach((id) => waitForElevation(id, key));
     bumpOwnReputation();
     showView('map');
     const firstMeal = plates[0].meal;
@@ -1132,13 +1265,102 @@ $('#form-report').addEventListener('submit', async (e) => {
     openTown(key);
   } catch (err) {
     console.error(err);
-    if (path) deleteObject(storageRef(storage, path)).catch(() => {});
     toast(friendlyError(err));
   } finally {
     btn.disabled = false;
     btn.textContent = 'Submit prices';
   }
 });
+
+// ---- offline queue (IndexedDB) ----
+const QUEUE_DB = 'dbp-offline';
+const QUEUE_STORE = 'reports';
+function queueDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(QUEUE_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(QUEUE_STORE, { keyPath: 'localId' });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function queueTx(mode, fn) {
+  const dbx = await queueDb();
+  return new Promise((resolve, reject) => {
+    const tx = dbx.transaction(QUEUE_STORE, mode);
+    const out = fn(tx.objectStore(QUEUE_STORE));
+    tx.oncomplete = () => { dbx.close(); resolve(out?.result ?? out); };
+    tx.onerror = () => { dbx.close(); reject(tx.error); };
+  });
+}
+const queuePut = (item) => queueTx('readwrite', (st) => st.put(item));
+const queueDelete = (id) => queueTx('readwrite', (st) => st.delete(id));
+const queueAll = () => queueTx('readonly', (st) => st.getAll()).catch(() => []);
+
+async function myQueue() {
+  if (!state.user) return [];
+  return (await queueAll()).filter((it) => it.uid === state.user.uid);
+}
+
+async function updateQueueStatus() {
+  const box = $('#queue-status');
+  const items = await myQueue();
+  if (!items.length) { box.hidden = true; return; }
+  const failed = items.filter((it) => it.error);
+  const plates = items.reduce((n, it) => n + it.plates.length, 0);
+  box.hidden = false;
+  box.innerHTML = `
+    <span>⏳ ${items.length} menu photo${items.length > 1 ? 's' : ''} (${plates} price${plates > 1 ? 's' : ''}) waiting to upload${navigator.onLine ? '' : ' — will send when you\'re online'}.
+      ${failed.length ? `<br><small>${failed.length} couldn't be sent: ${esc(failed[0].error)}</small>` : ''}</span>
+    <span>
+      ${navigator.onLine ? '<button class="btn small" data-action="sync-queue">Upload now</button>' : ''}
+      ${failed.length ? '<button class="btn small ghost" data-action="discard-failed">Discard failed</button>' : ''}
+    </span>`;
+}
+
+let syncing = false;
+async function syncQueue({ quiet = false } = {}) {
+  if (syncing || !state.user || !navigator.onLine) return;
+  syncing = true;
+  let sent = 0;
+  let townKeyToShow = null;
+  try {
+    for (const item of await myQueue()) {
+      try {
+        const res = await sendSubmission(item);
+        await queueDelete(item.localId);
+        sent += item.plates.length;
+        townKeyToShow = res.townKey;
+        res.ids.forEach((id) => waitForElevation(id, res.townKey));
+      } catch (err) {
+        if (isNetworkError(err)) break; // still offline — try again later
+        item.error = friendlyError(err);
+        await queuePut(item);
+      }
+    }
+  } finally {
+    syncing = false;
+  }
+  if (sent) {
+    toast(`⬆️ Uploaded ${sent} saved price${sent > 1 ? 's' : ''}. Thanks!`);
+    await loadReports();
+    bumpOwnReputation();
+  } else if (!quiet) {
+    const left = await myQueue();
+    if (left.length) toast('Still waiting for a connection…');
+  }
+  updateQueueStatus();
+  return townKeyToShow;
+}
+
+function updateOnlineState() {
+  $('#offline-banner').hidden = navigator.onLine;
+  updateQueueStatus();
+  if (navigator.onLine) syncQueue({ quiet: true });
+}
+window.addEventListener('online', updateOnlineState);
+window.addEventListener('offline', updateOnlineState);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncQueue({ quiet: true }); });
+setInterval(() => syncQueue({ quiet: true }), 60000);
 
 function resetReportForm() {
   $('#form-report').reset();
@@ -1149,7 +1371,9 @@ function resetReportForm() {
   $('#r-loc-status').textContent = 'Pick a town above, or tap the map / drag the pin to fine-tune';
   clearPreview('r');
   $('#r-meta').innerHTML = '';
-  Object.assign(draft, { meta: null, lat: null, lng: null, geoSource: null, townAuto: true, elevation: null });
+  Object.assign(draft, { meta: null, lat: null, lng: null, geoSource: null, townAuto: true, elevation: null, takenAt: null, timeSource: null });
+  selected.r = null;
+  stopGps();
   if (miniMarker) { miniMarker.remove(); miniMarker = null; }
   if (miniMap) miniMap.fitBounds(NEPAL_BOUNDS);
 }
@@ -1157,7 +1381,7 @@ function resetReportForm() {
 $('#form-post').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!state.user) return signIn();
-  const file = $('#p-photo').files[0];
+  const file = selected.p;
   const townName = $('#p-town').value.trim();
   const priceRaw = $('#p-price').value;
   const price = priceRaw === '' ? null : Number(priceRaw);
@@ -1185,6 +1409,7 @@ $('#form-post').addEventListener('submit', async (e) => {
       createdAt: serverTimestamp(),
     });
     $('#form-post').reset();
+    selected.p = null;
     clearPreview('p');
     toast('Posted! +2 reputation');
     bumpOwnReputation();
@@ -1223,6 +1448,7 @@ async function renderMe() {
         <p class="muted">Browsing is open to everyone. Sign in with Google to add prices, post your plate, confirm others' prices and flag abuse.</p>
         <button class="btn primary" data-action="signin">Sign in with Google</button>
       </div>
+      ${installCard()}
       <div class="card small muted">Found a bug or have an idea? Sign in to send feedback.</div>
       ${aboutCard()}`;
     return;
@@ -1254,6 +1480,7 @@ async function renderMe() {
         </ul>
       </details>
     </div>
+    ${installCard()}
     ${feedbackCard()}
     <div class="card"><h2>My price reports</h2><div id="my-reports"><p class="muted">Loading…</p></div></div>
     <div class="card"><h2>My feed posts</h2><div id="my-posts"><p class="muted">Loading…</p></div></div>
@@ -1568,6 +1795,58 @@ async function renderFeedbackInbox() {
   });
 }
 
+// ---------------------------------------------------------------- install as an app
+let installEvent = null;
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installEvent = e;
+  renderInstall();
+});
+window.addEventListener('appinstalled', () => {
+  installEvent = null;
+  toast('Installed! Find Dal Bhat Power on your home screen.');
+  renderInstall();
+});
+
+function installCard() {
+  if (isStandalone()) return '';
+  const why = '<p class="muted small" style="margin:4px 0 0">The app records GPS when you take a menu photo, and saves prices with no signal — they upload once you\'re back online.</p>';
+  if (installEvent) {
+    return `<div class="card install-card"><h2>📲 Install the app</h2>${why}
+      <button class="btn primary" data-action="install" style="margin-top:10px">Install Dal Bhat Power</button></div>`;
+  }
+  if (isIOS) {
+    return `<div class="card install-card"><h2>📲 Install the app</h2>${why}
+      <ol class="small"><li>Open this page in <b>Safari</b></li><li>Tap the <b>Share</b> button ⬆︎</li><li>Choose <b>Add to Home Screen</b></li></ol></div>`;
+  }
+  return '';
+}
+
+function renderInstall() {
+  $('#install-btn').hidden = !installEvent || isStandalone();
+  if ($('#view-me').classList.contains('active')) renderMe();
+}
+
+async function promptInstall() {
+  if (!installEvent) {
+    if (isIOS) toast('In Safari: tap Share ⬆︎, then "Add to Home Screen".');
+    return;
+  }
+  installEvent.prompt();
+  await installEvent.userChoice.catch(() => null);
+  installEvent = null;
+  renderInstall();
+}
+
+if ('serviceWorker' in navigator && !useEmulators) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => console.warn('Service worker failed', err));
+  });
+}
+
 // ---------------------------------------------------------------- global actions
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-action]');
@@ -1577,6 +1856,13 @@ document.addEventListener('click', async (e) => {
   if (action === 'profile') { e.preventDefault(); return openProfile(el.dataset.uid); }
   if (action === 'edit-profile') return openEditProfile();
   if (action === 'go-me') return showView('me');
+  if (action === 'install') return promptInstall();
+  if (action === 'sync-queue') return syncQueue();
+  if (action === 'discard-failed') {
+    if (!confirm('Discard the saved submissions that failed to upload?')) return;
+    for (const it of await myQueue()) if (it.error) await queueDelete(it.localId);
+    return updateQueueStatus();
+  }
   if (action === 'feedback-status') {
     el.disabled = true;
     try {
@@ -1623,6 +1909,11 @@ document.addEventListener('click', async (e) => {
 });
 
 // ---------------------------------------------------------------- boot
+{
+  const v = new URLSearchParams(location.search).get('view');
+  if (['map', 'trends', 'add', 'feed', 'me'].includes(v)) setTimeout(() => showView(v), 0);
+}
+$('#offline-banner').hidden = navigator.onLine;
 $('#r-refills').checked = true;
 refreshTownList();
 renderMap();

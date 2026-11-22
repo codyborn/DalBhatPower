@@ -30,6 +30,16 @@ Dal Bhat Power is a crowdsourced map of what a plate of dal bhat costs across Ne
 - **Moderation**: moderators get a queue in the *Me* tab where they can restore, remove or ban. Moderator rights come from a custom claim.
 - **Rate limit**: more than 15 reports or 10 posts in an hour are held for review.
 
+## Installable app and offline mode
+
+The site is a Progressive Web App:
+- **Install:** Android/Chrome shows an *Install* button. On iPhone, open the site in Safari, tap Share, then *Add to Home Screen*.
+- **📷 Take photo:** phones strip GPS from photos picked on websites. A photo taken in the app records the phone's own GPS fix and the time instead. GPS works with no signal.
+- **Offline:**
+  - The service worker (`public/sw.js`) caches the app, libraries, map tiles and recent photos.
+  - Firestore's offline cache keeps the last-loaded prices viewable.
+  - Price submissions made without signal are saved on the phone (IndexedDB) and upload automatically when back online.
+
 ## Stack
 
 | Part | Tech |

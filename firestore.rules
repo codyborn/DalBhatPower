@@ -90,7 +90,7 @@ service cloud.firestore {
         && request.resource.data.observedAt is timestamp
         && request.resource.data.observedAt <= request.time + duration.value(1, 'd')
         && request.resource.data.observedAt > timestamp.date(2015, 1, 1)
-        && request.resource.data.timeSource in ['exif', 'upload']
+        && request.resource.data.timeSource in ['exif', 'device', 'upload']
         && request.resource.data.status == 'visible'
         && request.resource.data.flagScore == 0
         && request.resource.data.confirmCount == 0
