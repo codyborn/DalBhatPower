@@ -24,7 +24,8 @@ IDENT = r"[A-Za-z_$][\w$]*"
 
 def check(path):
     src = open(path).read()
-    code = re.sub(r"(?m)^\s*//[^\n]*|/\*.*?\*/", "", src, flags=re.S)
+    # Comments start after whitespace/punctuation — not inside text like "image/*" or "https://".
+    code = re.sub(r"(?<![:\w\"'/])//[^\n]*|(?<![\w\"'/])/\*.*?\*/", "", src, flags=re.S)
     called = set(re.findall(rf"(?<![\w.$'\"`])({IDENT})\s*\(", code))
     defined = set(re.findall(rf"function\s*\*?\s*({IDENT})", code))
     defined |= set(re.findall(rf"(?:const|let|var)\s+({IDENT})", code))

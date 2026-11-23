@@ -1715,8 +1715,9 @@ async function renderMe() {
         <h2>Join Dal Bhat Power</h2>
         <p class="muted">Browsing is open to everyone. Sign in with Google to add prices, post your plate, confirm others' prices and flag abuse.</p>
         <button class="btn primary" data-action="signin">Sign in with Google</button>
+        ${installNudge()}
       </div>
-      ${installCard()}
+      ${isMobileDevice ? '' : installCard()}
       <div class="card small muted">Found a bug or have an idea? Sign in to send feedback.</div>
       ${aboutCard()}`;
     return;
@@ -2109,7 +2110,32 @@ function installCard() {
 function renderInstall() {
   $('#install-btn').hidden = isStandalone() || !(installEvent || isDesktop);
   $('#install-btn').textContent = isDesktop ? '📲 Get the app' : '📲 Install';
+  $('#add-install-nudge').innerHTML = installNudge();
   if ($('#view-me').classList.contains('active')) renderMe();
+}
+
+// A gentle "get the app" note on the sign-in screens, for phone visitors in the browser.
+// "Not now" hides it for two weeks (remembered on this device only).
+const NUDGE_KEY = 'dbp-install-nudge-dismissed';
+const NUDGE_QUIET_MS = 14 * 24 * 60 * 60 * 1000;
+function nudgeDismissed() {
+  try { return Date.now() - Number(localStorage.getItem(NUDGE_KEY) || 0) < NUDGE_QUIET_MS; } catch { return false; }
+}
+function installNudge() {
+  if (!isMobileDevice || isStandalone() || nudgeDismissed()) return '';
+  if (!installEvent && !isIOS) return ''; // nothing we can offer (e.g. browser doesn't support install)
+  const how = installEvent
+    ? '<button class="btn small primary" data-action="install">Install</button>'
+    : '<span class="small">In Safari: tap <b>Share ⬆︎</b> → <b>Add to Home Screen</b></span>';
+  return `
+    <div class="install-nudge">
+      <img src="/icons/icon-192.png" alt="" width="40" height="40">
+      <div class="install-nudge-text">
+        <b>Get the app</b>
+        <span class="muted small">Tags menu photos with GPS and saves prices without signal.</span>
+        <div class="install-nudge-actions">${how}<button class="btn small ghost" data-action="dismiss-install">Not now</button></div>
+      </div>
+    </div>`;
 }
 
 // QR code library (qrcode-generator), loaded only when a laptop user asks for the code.
@@ -2335,6 +2361,11 @@ document.addEventListener('click', async (e) => {
   if (action === 'edit') return openEdit(el.dataset.type, el.dataset.id, el.closest('#sheet') ? 'town' : 'list');
   if (action === 'share-town') return shareTown(el.dataset.town, el.dataset.name);
   if (action === 'install') return promptInstall();
+  if (action === 'dismiss-install') {
+    try { localStorage.setItem(NUDGE_KEY, String(Date.now())); } catch { /* private mode: hide for this visit */ }
+    $$('.install-nudge').forEach((n) => n.remove());
+    return;
+  }
   if (action === 'sync-queue') return syncQueue();
   if (action === 'discard-failed') {
     if (!confirm('Discard the saved submissions that failed to upload?')) return;

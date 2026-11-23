@@ -324,3 +324,8 @@ tr.clickable { cursor: pointer; }
 .icon-btn[data-action="delete"]:hover { color: var(--bad); }
 .sheet-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-right: 40px; }
 .sheet-title h2 { margin: 0; }
+.install-nudge { display: flex; gap: 12px; align-items: flex-start; text-align: left; margin-top: 16px;
+  padding: 12px; border-radius: 12px; background: var(--brand-soft); }
+.install-nudge img { border-radius: 10px; flex: none; }
+.install-nudge-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.install-nudge-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
