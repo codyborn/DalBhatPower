@@ -1723,38 +1723,47 @@ async function renderMe() {
     return;
   }
   const p = state.profile || {};
+  const done = new Set(p.treks || []);
   box.innerHTML = `
-    <div class="card">
-      <div class="profile-head">
-        ${avatarHtml(p, 56)}
-        <div style="flex:1;min-width:0"><b>${esc(p.displayName || state.user.displayName || '')}</b>
-          ${p.homeCountry ? `<span title="${esc(countryName(p.homeCountry))}">${flag(p.homeCountry)}</span>` : ''}<br>
-          <span class="rep">★ ${esc(p.reputation ?? 0)} reputation</span>
-          ${state.isMod ? ' <span class="chip">Moderator</span>' : ''}</div>
-        <button class="btn small" data-action="signout">Sign out</button>
+    <div class="me-head">
+      ${avatarHtml(p, 64)}
+      <div class="me-name">
+        <div class="me-title">${esc(p.displayName || state.user.displayName || '')}
+          ${p.homeCountry ? `<span title="${esc(countryName(p.homeCountry))}">${flag(p.homeCountry)}</span>` : ''}
+          ${state.isMod ? '<span class="chip">Moderator</span>' : ''}</div>
+        <div class="muted">★ ${esc(p.reputation ?? 0)} reputation</div>
       </div>
-      ${p.bio ? `<p class="bio">${esc(p.bio)}</p>` : ''}
-      ${knownTreks(p.treks).length ? `<div class="badge-row">${knownTreks(p.treks).map(trekBadge).join('')}</div>` : ''}
-      ${p.banned ? '<p class="chip warn" style="margin-top:10px">Your account is suspended from posting.</p>' : ''}
-      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-        <button class="btn small" data-action="edit-profile">✎ Edit profile</button>
-        <button class="btn small ghost" data-action="profile" data-uid="${esc(state.user.uid)}">View public profile</button>
-      </div>
-      <details style="margin-top:10px"><summary class="muted small">How reputation works</summary>
-        <ul class="small muted">
-          <li>+5 per menu photo (+1 for each extra plate on it), +2 per feed post</li>
-          <li>+2 when someone confirms your price, +1 per like</li>
-          <li>−15 if the community hides your item; deleting your own item removes its points</li>
-          <li>Flags from members with 30+ reputation count double, 100+ count triple</li>
-        </ul>
-      </details>
+      <button class="icon-btn me-edit" data-action="edit-profile" aria-label="Edit profile" title="Edit profile">${EDIT_ICON}</button>
     </div>
+    ${p.bio ? `<p class="bio me-bio">${esc(p.bio)}</p>` : ''}
+    ${p.banned ? '<p class="chip warn">Your account is suspended from posting.</p>' : ''}
+
+    <div class="me-stats">
+      <div class="me-stat"><b><span class="star">★</span>${esc(p.reputation ?? 0)}</b><span>reputation</span></div>
+      <div class="me-stat"><b id="me-trek-count">${knownTreks(p.treks).length}</b><span>trek${knownTreks(p.treks).length === 1 ? '' : 's'}</span></div>
+    </div>
+    <details class="me-rep-help"><summary class="muted small">How reputation works</summary>
+      <ul class="small muted">
+        <li>+5 per menu photo (+1 for each extra plate on it), +2 per feed post</li>
+        <li>+2 when someone confirms your price, +1 per like</li>
+        <li>−15 if the community hides your item; deleting your own item removes its points</li>
+        <li>Flags from members with 30+ reputation count double, 100+ count triple</li>
+      </ul>
+    </details>
+
+    <h3 class="me-section">Treks you've done</h3>
+    <div class="trek-checklist" id="trek-checklist">${trekChecklist(done, false)}</div>
+
     ${installCard()}
-    ${feedbackCard()}
     <div class="card"><h2>My price reports</h2><div id="my-reports"><p class="muted">Loading…</p></div></div>
     <div class="card"><h2>My feed posts</h2><div id="my-posts"><p class="muted">Loading…</p></div></div>
     ${state.isMod ? '<div class="card"><h2>Moderation queue</h2><div id="mod-queue"><p class="muted">Loading…</p></div></div>' : ''}
     ${state.isMod ? '<div class="card"><h2>Feedback inbox</h2><div id="feedback-inbox"><p class="muted">Loading…</p></div></div>' : ''}
+    ${feedbackCard()}
+    <div class="me-footer">
+      <button class="btn small ghost" data-action="profile" data-uid="${esc(state.user.uid)}">View public profile</button>
+      <button class="btn small ghost" data-action="signout">Sign out</button>
+    </div>
     ${aboutCard()}`;
 
   const uid = state.user.uid;
@@ -1973,9 +1982,9 @@ const FEEDBACK_KINDS = { bug: '🐞 Bug', idea: '💡 Feature idea', other: '�
 
 function feedbackCard() {
   return `
-    <div class="card" id="feedback">
-      <h2>Feedback</h2>
-      <p class="muted small">Found a bug or want a feature? Tell us. Moderators read every message.</p>
+    <details class="card feedback-card" id="feedback">
+      <summary><span>💬 Send feedback</span><span class="muted small">Bug or feature idea?</span></summary>
+      <p class="muted small">Found a bug or want a feature? Tell us — moderators read every message.</p>
       <form id="feedback-form" class="form">
         <div class="segmented" role="radiogroup">
           ${Object.entries(FEEDBACK_KINDS).map(([k, v], i) => `
@@ -1985,7 +1994,46 @@ function feedbackCard() {
         <button class="btn primary wide" type="submit" style="margin-top:10px">Send feedback</button>
       </form>
       <div id="my-feedback"></div>
-    </div>`;
+    </details>`;
+}
+
+// ---- tick-off trek list on the Me tab ----
+const TREKS_PREVIEW = 6;
+function trekChecklist(done, showAll) {
+  // Treks you've done first (in list order), then the rest.
+  const ordered = [...TREKS.filter((t) => done.has(t.id)), ...TREKS.filter((t) => !done.has(t.id))];
+  const shown = showAll ? ordered : ordered.slice(0, Math.max(TREKS_PREVIEW, done.size + 2));
+  return shown.map((t) => `
+      <button class="trek-row ${done.has(t.id) ? 'done' : ''}" data-action="toggle-trek" data-trek="${t.id}" aria-pressed="${done.has(t.id)}">
+        ${trekBadge(t)}<span class="trek-name">${esc(t.name)}</span>
+        <span class="trek-check" aria-hidden="true">✓</span>
+      </button>`).join('')
+    + (shown.length < ordered.length
+      ? `<button class="btn small ghost trek-more" data-action="all-treks">Show all ${ordered.length} treks</button>` : '');
+}
+
+let trekSaveTimer;
+async function toggleTrek(id) {
+  const p = state.profile || {};
+  const done = new Set(p.treks || []);
+  if (done.has(id)) done.delete(id); else done.add(id);
+  const treks = TREKS.map((t) => t.id).filter((t) => done.has(t));   // keep a stable order
+  state.profile = { ...p, treks };
+  userCache.set(state.user.uid, Promise.resolve(state.profile));
+  // Update just this row (no re-sort while the person is tapping) and the counter.
+  const row = $(`.trek-row[data-trek="${CSS.escape(id)}"]`);
+  row?.classList.toggle('done', done.has(id));
+  row?.setAttribute('aria-pressed', String(done.has(id)));
+  $('#me-trek-count').textContent = treks.length;
+  $('#me-trek-count').nextElementSibling.textContent = treks.length === 1 ? 'trek' : 'treks';
+  clearTimeout(trekSaveTimer);
+  trekSaveTimer = setTimeout(async () => {
+    try {
+      await updateDoc(doc(db, 'users', state.user.uid), { treks: state.profile.treks });
+    } catch (err) {
+      toast(friendlyError(err));
+    }
+  }, 600);
 }
 
 document.addEventListener('change', (e) => {
@@ -2356,6 +2404,8 @@ document.addEventListener('click', async (e) => {
   if (action === 'signin') return signIn();
   if (action === 'profile') { e.preventDefault(); return openProfile(el.dataset.uid); }
   if (action === 'edit-profile') return openEditProfile();
+  if (action === 'toggle-trek') return toggleTrek(el.dataset.trek);
+  if (action === 'all-treks') { $('#trek-checklist').innerHTML = trekChecklist(new Set(state.profile?.treks || []), true); return; }
   if (action === 'go-me') return showView('me');
   if (action === 'go-add') return showView('add');
   if (action === 'edit') return openEdit(el.dataset.type, el.dataset.id, el.closest('#sheet') ? 'town' : 'list');
